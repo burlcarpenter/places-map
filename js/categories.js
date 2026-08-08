@@ -2,13 +2,45 @@
 // without touching code — the future desktop editor consumes the same file.
 
 let taxonomy = null;
+let defaults = null;
 
 export async function loadTaxonomy() {
   if (taxonomy) return taxonomy;
   const res = await fetch('data/categories.json');
   if (!res.ok) throw new Error(`Could not load categories.json (${res.status})`);
-  taxonomy = await res.json();
+  defaults = await res.json();
+  taxonomy = defaults;
   return taxonomy;
+}
+
+/**
+ * The places file may carry its own `categories` array — that is where the
+ * desktop editor writes the taxonomy, so it travels with the data and needs no
+ * separate deploy. Keyword rules are not editable there, so any bucket that
+ * shares an id with a built-in one inherits its `match` rules; genuinely new
+ * buckets get none, which is correct since they are only ever assigned by hand.
+ *
+ * Returns true when the taxonomy changed, so callers can rebuild marker icons.
+ */
+export function applyTaxonomyFrom(geojson) {
+  const fromFile = geojson?.categories;
+  const base = defaults ?? { buckets: [], weakTokens: [] };
+
+  const next = (Array.isArray(fromFile) && fromFile.length)
+    ? {
+        weakTokens: base.weakTokens ?? [],
+        buckets: fromFile.map(c => ({
+          ...c,
+          match: Array.isArray(c.match) && c.match.length
+            ? c.match
+            : (base.buckets.find(b => b.id === c.id)?.match ?? [])
+        }))
+      }
+    : base;
+
+  const changed = JSON.stringify(next.buckets) !== JSON.stringify(taxonomy?.buckets);
+  taxonomy = next;
+  return changed;
 }
 
 export function buckets() {

@@ -1,4 +1,5 @@
-import { loadTaxonomy, buckets, bucketById, annotate, categoryLabel, parseMaybeJson } from './categories.js';
+import { loadTaxonomy, buckets, bucketById, annotate, categoryLabel, parseMaybeJson,
+         applyTaxonomyFrom } from './categories.js';
 import { getPlaces, setPlaces, getSettings, saveSettings } from './store.js';
 import { fetchPlaces, diff, sanitizeToken } from './sync.js';
 
@@ -64,8 +65,10 @@ function initMap() {
 
 function registerIcons() {
   for (const b of buckets()) {
-    const img = makePin(b);
-    if (!map.hasImage(`pin-${b.id}`)) map.addImage(`pin-${b.id}`, img, { pixelRatio: 2 });
+    // Replace rather than skip — an existing image would keep a stale colour
+    // after the taxonomy is edited in the desktop editor.
+    if (map.hasImage(`pin-${b.id}`)) map.removeImage(`pin-${b.id}`);
+    map.addImage(`pin-${b.id}`, makePin(b), { pixelRatio: 2 });
   }
 }
 
@@ -112,6 +115,9 @@ function addLayers() {
 }
 
 function render(fc, { fit = false } = {}) {
+  // The file may carry its own taxonomy from the desktop editor; adopt it
+  // before annotating, and rebuild the marker sprites if it differs.
+  if (applyTaxonomyFrom(fc)) registerIcons();
   data = annotate(fc);
   map.getSource(SRC).setData(data);
   buildChips();

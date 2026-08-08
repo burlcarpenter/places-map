@@ -13,6 +13,10 @@ secrets*
 *.geojson
 places-*.json
 
+# Desktop editor — a local tool that edits private data. Its natural home is the
+# private places-data repo, next to the file it edits, not this public app repo.
+editor.html
+
 # Local scratch
 *.log
 .DS_Store
