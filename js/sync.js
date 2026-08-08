@@ -17,8 +17,13 @@ export async function fetchPlaces({ owner, repo, path, token }) {
         'X-GitHub-Api-Version': '2022-11-28'
       }
     });
-  } catch {
-    throw new Error('Network unreachable. You are probably offline — cached places are still loaded.');
+  } catch (e) {
+    // fetch() rejects identically for offline, DNS failure, TLS problems and
+    // VPN interference, so do not claim to know which — just report and hint.
+    throw new Error(
+      `Could not reach GitHub (${e?.message || 'network error'}). ` +
+      'Offline, VPN or DNS are the usual causes. Cached places are still loaded.'
+    );
   }
 
   if (res.status === 401) throw new Error('Token rejected. It may have expired — generate a new one in Settings.');
