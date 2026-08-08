@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 0 — GitHub fetch test</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1a1a; --muted: #666; --border: #d8d8d8;
+    --field: #fafafa; --ok: #0a7d32; --warn: #9a6200; --err: #c0271c; --accent: #2f6fdd;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181c; --fg: #e6e6e6; --muted: #999; --border: #33373d;
+      --field: #1e2126; --ok: #4ec26f; --warn: #e0a33a; --err: #f0736a; --accent: #6f9ef0;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2rem 1.25rem; background: var(--bg); color: var(--fg);
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 1.3rem; margin: 0 0 .3rem; }
+  .sub { color: var(--muted); margin: 0 0 1.75rem; font-size: .9rem; }
+  label { display: block; margin: 0 0 1rem; }
+  .lbl { display: block; font-weight: 600; font-size: .82rem; margin-bottom: .3rem; }
+  .hint { font-weight: 400; color: var(--muted); }
+  input {
+    width: 100%; padding: .55rem .7rem; font: inherit; font-size: .92rem;
+    background: var(--field); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 7px;
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+  button {
+    padding: .6rem 1.3rem; font: inherit; font-weight: 600; cursor: pointer;
+    background: var(--accent); color: #fff; border: 0; border-radius: 7px;
+  }
+  button:disabled { opacity: .55; cursor: default; }
+  #out { margin-top: 1.75rem; }
+  .card {
+    border: 1px solid var(--border); border-left-width: 4px;
+    border-radius: 7px; padding: .85rem 1rem; margin-bottom: .85rem;
+  }
+  .card h2 { font-size: .95rem; margin: 0 0 .4rem; }
+  .card p  { margin: .3rem 0; font-size: .88rem; }
+  .ok   { border-left-color: var(--ok); }
+  .ok h2   { color: var(--ok); }
+  .warn { border-left-color: var(--warn); }
+  .warn h2 { color: var(--warn); }
+  .err  { border-left-color: var(--err); }
+  .err h2  { color: var(--err); }
+  .info { border-left-color: var(--accent); }
+  pre {
+    background: var(--field); border: 1px solid var(--border); border-radius: 7px;
+    padding: .8rem; overflow-x: auto; font-size: .8rem; line-height: 1.45;
+    max-height: 340px; margin: .5rem 0 0;
+  }
+  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: .25rem .9rem; margin: .5rem 0 0; font-size: .88rem; }
+  dt { color: var(--muted); }
+  dd { margin: 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Phase 0 — GitHub private-repo fetch test</h1>
+  <p class="sub">Confirms the PWA can pull your places file from a private repo over CORS, before any map code exists.</p>
+
+  <label>
+    <span class="lbl">GitHub username</span>
+    <input id="owner" placeholder="your-username" autocomplete="off" spellcheck="false">
+  </label>
+  <label>
+    <span class="lbl">Repository</span>
+    <input id="repo" placeholder="your-data-repo" autocomplete="off" spellcheck="false">
+  </label>
+  <label>
+    <span class="lbl">File path <span class="hint">— path within the repo</span></span>
+    <input id="path" placeholder="places.geojson" autocomplete="off" spellcheck="false">
+  </label>
+  <label>
+    <span class="lbl">Fine-grained token <span class="hint">— stays in this tab, never stored or sent anywhere but GitHub</span></span>
+    <input id="token" type="password" placeholder="github_pat_..." autocomplete="off" spellcheck="false">
+  </label>
+
+  <button id="go">Test fetch</button>
+  <div id="out"></div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const out = $('out');
+
+const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const card = (cls, title, html) =>
+  out.insertAdjacentHTML('beforeend', `<div class="card ${cls}"><h2>${title}</h2>${html}</div>`);
+
+$('go').addEventListener('click', run);
+
+async function run() {
+  out.innerHTML = '';
+  const btn = $('go');
+  const owner = $('owner').value.trim();
+  const repo  = $('repo').value.trim();
+  const path  = $('path').value.trim().replace(/^\/+/, '');
+  const token = $('token').value.trim();
+
+  if (!owner || !repo || !path || !token) {
+    card('err', 'Missing field', '<p>Fill in all four fields, including the token.</p>');
+    return;
+  }
+
+  // Encode each path segment separately so subfolders survive.
+  const safePath = path.split('/').map(encodeURIComponent).join('/');
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${safePath}`;
+
+  btn.disabled = true;
+  btn.textContent = 'Fetching…';
+  const started = performance.now();
+
+  let res;
+  try {
+    res = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github.raw',
+        'X-GitHub-Api-Version': '2022-11-28'
+      }
+    });
+  } catch (e) {
+    card('err', 'Request failed before a response arrived',
+      `<p>This is the CORS / network failure mode — the browser blocked it or the host was unreachable.</p>
+       <p><code>${esc(e.message)}</code></p>
+       <p>If you opened this file directly from disk, that's the likely cause. Serve it over
+       <code>http://localhost</code> instead and retry.</p>`);
+    reset();
+    return;
+  }
+
+  const ms = Math.round(performance.now() - started);
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    const why = {
+      401: 'Token is invalid, expired, or malformed. Regenerate it and paste again.',
+      403: 'Authenticated but forbidden — usually a rate limit, or the token lacks Contents permission.',
+      404: 'Not found. Three possible causes, and GitHub deliberately does not distinguish them: the filename is wrong, the repo name is wrong, or the token is not scoped to this repo. Check the filename first — it is the usual culprit.',
+      422: 'The path resolved to something that is not a file, e.g. a directory.'
+    }[res.status] || 'Unexpected status — the raw response body is below.';
+
+    card('err', `HTTP ${res.status} ${esc(res.statusText)}`,
+      `<p>${esc(why)}</p><pre><code>${esc(body.slice(0, 1200)) || '(empty body)'}</code></pre>`);
+    reset();
+    return;
+  }
+
+  const text = await res.text();
+
+  card('ok', 'Fetch succeeded — CORS is not a problem',
+    `<dl>
+       <dt>Status</dt><dd>${res.status} ${esc(res.statusText)}</dd>
+       <dt>Time</dt><dd>${ms} ms</dd>
+       <dt>Size</dt><dd>${(text.length / 1024).toFixed(1)} KB</dd>
+       <dt>Rate limit</dt><dd>${esc(res.headers.get('x-ratelimit-remaining') ?? '—')} of ${esc(res.headers.get('x-ratelimit-limit') ?? '—')} remaining</dd>
+     </dl>`);
+
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (e) {
+    card('err', 'Fetched, but the body is not valid JSON',
+      `<p><code>${esc(e.message)}</code></p><pre><code>${esc(text.slice(0, 600))}</code></pre>`);
+    reset();
+    return;
+  }
+
+  inspect(data);
+  card('info', 'First 1500 characters', `<pre><code>${esc(JSON.stringify(data, null, 2).slice(0, 1500))}</code></pre>`);
+  reset();
+
+  function reset() { btn.disabled = false; btn.textContent = 'Test fetch'; }
+}
+
+function inspect(data) {
+  if (data?.type !== 'FeatureCollection' || !Array.isArray(data.features)) {
+    card('warn', 'Parsed as JSON, but not a GeoJSON FeatureCollection',
+      `<p>Top-level <code>type</code> is <code>${esc(data?.type ?? 'absent')}</code>. Workable — I will just
+       write a conversion step. Structure summary:</p>
+       <pre><code>${esc(JSON.stringify(Object.keys(data ?? {}), null, 2))}</code></pre>`);
+    return;
+  }
+
+  const feats = data.features;
+  const cats = new Map();
+  const propKeys = new Set();
+  let bad = 0, swapped = 0;
+  let minLng = 180, maxLng = -180, minLat = 90, maxLat = -90;
+
+  for (const f of feats) {
+    for (const k of Object.keys(f.properties ?? {})) propKeys.add(k);
+    const c = f.properties?.category ?? '(none)';
+    cats.set(c, (cats.get(c) ?? 0) + 1);
+
+    const co = f.geometry?.coordinates;
+    if (!Array.isArray(co) || co.length < 2 || !isFinite(co[0]) || !isFinite(co[1])) { bad++; continue; }
+    const [lng, lat] = co;
+    if (Math.abs(lat) > 90) swapped++;
+    minLng = Math.min(minLng, lng); maxLng = Math.max(maxLng, lng);
+    minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat);
+  }
+
+  const catRows = [...cats.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('');
+
+  card('ok', 'Valid GeoJSON',
+    `<dl>
+       <dt>Features</dt><dd>${feats.length}</dd>
+       <dt>Categories</dt><dd>${cats.size}</dd>
+       <dt>Bounding box</dt><dd>lng ${minLng.toFixed(3)} → ${maxLng.toFixed(3)}, lat ${minLat.toFixed(3)} → ${maxLat.toFixed(3)}</dd>
+     </dl>
+     <p style="margin-top:.7rem">Check the box against where your places actually are. If it looks
+     wildly off, coordinates are probably reversed — GeoJSON order is <code>[longitude, latitude]</code>.</p>`);
+
+  card('info', 'Category breakdown', `<dl>${catRows}</dl>`);
+  card('info', 'Property keys present', `<p><code>${esc([...propKeys].join(', ')) || '(none)'}</code></p>`);
+
+  if (swapped) card('err', `${swapped} feature${swapped > 1 ? 's have' : ' has'} latitude beyond ±90`,
+    '<p>Definitive sign of reversed coordinates. GeoJSON order is <code>[longitude, latitude]</code>.</p>');
+  if (bad) card('warn', `${bad} feature${bad > 1 ? 's' : ''} missing usable coordinates`,
+    '<p>These would silently fail to render. I will handle them when building Phase 2.</p>');
+}
+</script>
+</body>
+</html>

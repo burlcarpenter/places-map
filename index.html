@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#ffffff">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Places</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon.svg">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<div id="map"></div>
+
+<!-- Search -->
+<div class="search-wrap">
+  <div class="search">
+    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4a6 6 0 104.47 10.03l4.25 4.25 1.41-1.41-4.25-4.25A6 6 0 0010 4zm0 2a4 4 0 110 8 4 4 0 010-8z"/></svg>
+    <input id="search" type="search" placeholder="Search places" autocomplete="off" spellcheck="false" enterkeyhint="search">
+    <button id="search-clear" class="ghost" hidden aria-label="Clear search">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+    </button>
+  </div>
+  <div id="results" class="results" hidden></div>
+</div>
+
+<!-- Side controls -->
+<div class="controls">
+  <button id="btn-locate" class="fab" aria-label="My location">
+    <svg class="icon" viewBox="0 0 24 24"><path d="M12 8a4 4 0 100 8 4 4 0 000-8zm8.94 3A9 9 0 0013 3.06V1h-2v2.06A9 9 0 003.06 11H1v2h2.06A9 9 0 0011 20.94V23h2v-2.06A9 9 0 0020.94 13H23v-2h-2.06zM12 19a7 7 0 110-14 7 7 0 010 14z"/></svg>
+  </button>
+  <button id="btn-refresh" class="fab" aria-label="Refresh data">
+    <svg class="icon" viewBox="0 0 24 24"><path d="M17.65 6.35A7.96 7.96 0 0012 4a8 8 0 108 8h-2a6 6 0 11-1.76-4.24L13 11h7V4z"/></svg>
+  </button>
+  <button id="btn-settings" class="fab" aria-label="Settings">
+    <svg class="icon" viewBox="0 0 24 24"><path d="M19.14 12.94a7.07 7.07 0 000-1.88l2.03-1.58a.5.5 0 00.12-.64l-1.92-3.32a.5.5 0 00-.6-.22l-2.39.96a7 7 0 00-1.63-.94l-.36-2.54a.5.5 0 00-.5-.42h-3.84a.5.5 0 00-.5.42l-.36 2.54c-.59.24-1.13.55-1.63.94l-2.39-.96a.5.5 0 00-.6.22L2.65 8.84a.5.5 0 00.12.64l2.03 1.58a7.07 7.07 0 000 1.88l-2.03 1.58a.5.5 0 00-.12.64l1.92 3.32c.13.22.39.3.6.22l2.39-.96c.5.39 1.04.7 1.63.94l.36 2.54c.04.24.25.42.5.42h3.84c.25 0 .46-.18.5-.42l.36-2.54c.59-.24 1.13-.55 1.63-.94l2.39.96c.22.08.47 0 .6-.22l1.92-3.32a.5.5 0 00-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1112 8.5a3.5 3.5 0 010 7z"/></svg>
+  </button>
+</div>
+
+<!-- Category filter chips -->
+<div class="filters" id="filters"></div>
+
+<!-- Place info sheet -->
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet-grip"></div>
+  <button id="sheet-close" class="sheet-close ghost" aria-label="Close">
+    <svg class="icon" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+  </button>
+  <div id="sheet-body"></div>
+</div>
+
+<!-- Settings -->
+<div class="modal" id="settings" hidden>
+  <div class="modal-card">
+    <header>
+      <h2>Settings</h2>
+      <button id="settings-close" class="ghost" aria-label="Close">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+    </header>
+
+    <p class="note">Your token is stored only in this app's local database on this device. It is never written into the source code and never sent anywhere except GitHub.</p>
+
+    <label><span>GitHub username</span><input id="set-owner" autocomplete="off" spellcheck="false" placeholder="your-username"></label>
+    <label><span>Repository</span><input id="set-repo" autocomplete="off" spellcheck="false" placeholder="your-data-repo"></label>
+    <label><span>File path</span><input id="set-path" autocomplete="off" spellcheck="false" placeholder="places.geojson"></label>
+    <label><span>Fine-grained token</span><input id="set-token" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_..."></label>
+
+    <div class="row">
+      <button id="settings-save" class="primary">Save</button>
+      <button id="settings-sync" class="secondary">Save &amp; refresh now</button>
+    </div>
+
+    <dl class="meta">
+      <dt>Places loaded</dt><dd id="meta-count">—</dd>
+      <dt>Last refreshed</dt><dd id="meta-sync">never</dd>
+      <dt>App version</dt><dd>Proof of concept</dd>
+    </dl>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

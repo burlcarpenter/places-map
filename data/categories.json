@@ -1,0 +1,121 @@
+{
+  "_comment": [
+    "Shared category taxonomy. Consumed by the PWA at runtime and (later) by the",
+    "desktop GeoJSON editor. Edit this file to retune bucketing without touching code.",
+    "",
+    "Resolution order for any place:",
+    "  1. properties.user.bucket   - explicit override, wins over everything (editor writes this)",
+    "  2. rules below vs. properties.category, first token first, weak tokens last",
+    "  3. 'other'",
+    "",
+    "properties.user is the user-authored namespace: { bucket, note, tags, visited,",
+    "priority, hidden }. A re-import from Google Takeout refreshes the Google-owned",
+    "fields but must MERGE on placeId and preserve properties.user untouched.",
+    "",
+    "properties.category is an ARRAY of category strings from exportmymap, primary",
+    "category first. A comma-joined string is also accepted for hand-edited files.",
+    "",
+    "'match' entries are lowercase substrings tested against each category token.",
+    "Order within a bucket does not matter;",
+    "order of the buckets array DOES - earlier buckets win ties.",
+    "",
+    "Prefix an entry with '=' to require an EXACT token match instead of a substring.",
+    "Needed where a short word hides inside unrelated ones: '=inn' so it does not",
+    "catch 'dinner', '=park' so it does not catch 'parking lot', '=bar' so it does",
+    "not catch 'barber shop'."
+  ],
+
+  "weakTokens": [
+    "tourist attraction",
+    "building",
+    "event venue",
+    "event planner",
+    "event management company",
+    "wedding venue",
+    "wedding planner",
+    "wedding service",
+    "wedding buffet",
+    "protected area"
+  ],
+
+  "buckets": [
+    {
+      "id": "hotel",
+      "label": "Hotel",
+      "emoji": "🏨",
+      "color": "#7b5ea7",
+      "match": ["hotel", "hostel", "guest house", "guesthouse", "=inn", "bed & breakfast", "apartment"]
+    },
+    {
+      "id": "market",
+      "label": "Market",
+      "emoji": "🧺",
+      "color": "#c77d2e",
+      "match": ["market", "flea market", "handicraft fair", "bazaar", "food court"]
+    },
+    {
+      "id": "park",
+      "label": "Park & outdoors",
+      "emoji": "🌳",
+      "color": "#3f8f4f",
+      "match": [
+        "=park", "national park", "urban park", "city park", "public park",
+        "hiking area", "hiking", "=garden", "botanical garden", "nature reserve",
+        "forest", "=lake", "beach", "viewpoint", "scenic spot",
+        "thermal bath", "=spa", "day spa"
+      ]
+    },
+    {
+      "id": "sight",
+      "label": "Museum & sight",
+      "emoji": "🏛️",
+      "color": "#b5473f",
+      "match": [
+        "museum", "historical landmark", "monument", "castle", "palace", "cathedral",
+        "church", "basilica", "synagogue", "religious destination", "memorial",
+        "gallery", "archaeological", "observation deck", "opera house", "theater",
+        "tourist attraction"
+      ]
+    },
+    {
+      "id": "cafe",
+      "label": "Café & bakery",
+      "emoji": "☕",
+      "color": "#8a6240",
+      "match": [
+        "cafe", "café", "coffee", "espresso", "tea house", "tea room", "bakery",
+        "patisserie", "dessert", "cookie", "ice cream", "confectionery", "roastery"
+      ]
+    },
+    {
+      "id": "restaurant",
+      "label": "Restaurant & bar",
+      "emoji": "🍽️",
+      "color": "#d1633c",
+      "match": [
+        "restaurant", "bistro", "brasserie", "eatery", "diner", "steak house",
+        "pizzeria", "deli", "delicatessen", "canteen", "buffet", "food",
+        "=bar", "wine bar", "cocktail bar", "tapas bar", "sports bar", "beer bar",
+        "=pub", "brewpub", "brewery", "winery", "wine", "cocktail",
+        "night club", "taproom", "beer"
+      ]
+    },
+    {
+      "id": "shopping",
+      "label": "Shopping",
+      "emoji": "🛍️",
+      "color": "#2f6fdd",
+      "match": [
+        "store", "shop", "wholesaler", "boutique", "mall", "supermarket",
+        "grocery", "pharmacy", "bookshop", "bookstore", "supplier"
+      ]
+    },
+    {
+      "id": "other",
+      "label": "Other",
+      "emoji": "📍",
+      "color": "#6b7280",
+      "match": []
+    }
+  ]
+}

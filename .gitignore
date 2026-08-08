@@ -1,0 +1,22 @@
+# Credentials — never commit. The app takes the token at runtime and keeps it
+# in IndexedDB on the device; it must never exist in the repo.
+github_pat*
+ghp_*
+*token*.txt
+*.pat
+.env
+.env.*
+secrets*
+
+# Places data — lives in the PRIVATE places-data repo and is fetched at runtime.
+# This app repo must be public for GitHub Pages, so the data must never enter it.
+*.geojson
+places-*.json
+
+# Local scratch
+*.log
+.DS_Store
+Thumbs.db
+
+# Original brief - kept locally, not published
+Here's the build prompt for Claude Code.md
