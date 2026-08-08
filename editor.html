@@ -1,0 +1,1295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Places Editor</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<style>
+  :root {
+    --bg:#f6f5f2;          /* warm paper, so white cards read as raised */
+    --surface:#fff;
+    --surface-2:#f0eee9;
+    --fg:#1b1a17;
+    --muted:#6d6862;
+    --border:#e5e1da;
+    --accent:#3f5bd9;
+    --accent-soft:#eaeeff;
+    --danger:#bc3826;
+    --ok:#12805c;
+    --warn:#b06b00;
+    --r:10px;
+    --sh-1:0 1px 2px rgba(28,24,18,.05), 0 1px 3px rgba(28,24,18,.07);
+    --sh-2:0 6px 24px rgba(28,24,18,.12);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#141517; --surface:#1c1e21; --surface-2:#24272b;
+      --fg:#e9e8e5; --muted:#9b9793; --border:#31343a;
+      --accent:#8098f5; --accent-soft:#212844;
+      --danger:#ef7466; --ok:#4ec48c; --warn:#e0a33a;
+      --sh-1:0 1px 2px rgba(0,0,0,.35); --sh-2:0 8px 30px rgba(0,0,0,.5);
+    }
+  }
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  html,body { height:100%; margin:0; }
+  body {
+    font:14px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    color:var(--fg); background:var(--bg); display:flex; flex-direction:column;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection { background:var(--accent); color:#fff; }
+  button { font:inherit; cursor:pointer; border:0; background:none; color:inherit; }
+  input,select,textarea {
+    font:inherit; width:100%; padding:9px 11px; color:var(--fg);
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--r);
+    transition:border-color .15s, box-shadow .15s;
+  }
+  input:hover,select:hover,textarea:hover { border-color:color-mix(in srgb, var(--accent) 35%, var(--border)); }
+  input:focus,select:focus,textarea:focus {
+    outline:none; border-color:var(--accent);
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+  textarea { resize:vertical; min-height:84px; line-height:1.5; }
+  code { font-family:ui-monospace,"Cascadia Code",Consolas,monospace; font-size:.92em;
+         background:var(--surface-2); padding:1px 5px; border-radius:4px; }
+
+  /* ---- top bar ---- */
+  header {
+    display:flex; align-items:center; gap:8px; padding:11px 16px; flex:none; flex-wrap:wrap;
+    background:var(--surface); border-bottom:1px solid var(--border); box-shadow:var(--sh-1);
+    position:relative; z-index:10;
+  }
+  header h1 {
+    font-size:14px; margin:0 10px 0 0; font-weight:700; letter-spacing:-.01em;
+    display:flex; align-items:center; gap:7px;
+  }
+  header h1::before { content:'🗺️'; font-size:16px; }
+  .btn {
+    padding:8px 14px; border-radius:var(--r); font-size:13px; font-weight:600;
+    background:var(--surface-2); border:1px solid transparent;
+    transition:background .14s, border-color .14s, transform .06s, color .14s;
+  }
+  .btn:hover { background:color-mix(in srgb, var(--accent) 10%, var(--surface-2)); border-color:color-mix(in srgb, var(--accent) 25%, transparent); }
+  .btn:active { transform:translateY(1px); }
+  .btn.primary { background:var(--accent); color:#fff; box-shadow:var(--sh-1); }
+  .btn.primary:hover { filter:brightness(1.09); border-color:transparent; }
+  .btn.danger { color:var(--danger); }
+  .btn.danger:hover { background:color-mix(in srgb, var(--danger) 12%, var(--surface-2)); border-color:transparent; }
+  .btn:disabled { opacity:.4; cursor:default; transform:none; background:var(--surface-2); border-color:transparent; }
+  .spacer { flex:1; }
+  .filemeta { font-size:12px; color:var(--muted); display:flex; align-items:center; gap:8px; }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--ok); box-shadow:0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent); }
+  .dot.dirty { background:var(--warn); box-shadow:0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent); }
+
+  /* ---- layout ---- */
+  main { flex:1; display:grid; grid-template-columns:352px 1fr; min-height:0; }
+  @media (max-width:900px) { main { grid-template-columns:1fr; } }
+
+  .pane-list { border-right:1px solid var(--border); display:flex; flex-direction:column; min-height:0; background:var(--surface); }
+  .listtools { padding:12px; display:grid; gap:9px; border-bottom:1px solid var(--border); }
+  .listtools .row { display:flex; gap:8px; }
+  .count { font-size:11.5px; color:var(--muted); padding:0 2px; letter-spacing:.02em; }
+  .list { overflow-y:auto; flex:1; padding:6px; }
+  .list::-webkit-scrollbar { width:10px; }
+  .list::-webkit-scrollbar-thumb { background:var(--border); border-radius:6px; border:3px solid var(--surface); }
+
+  .item {
+    display:flex; gap:11px; align-items:flex-start; width:100%; text-align:left;
+    padding:10px 12px; border-radius:var(--r); margin-bottom:2px;
+    border-left:3px solid transparent; transition:background .12s, border-color .12s;
+  }
+  .item:hover { background:var(--surface-2); border-left-color:var(--c, var(--border)); }
+  .item[aria-selected="true"] {
+    background:var(--accent-soft); border-left-color:var(--c, var(--accent));
+  }
+  .item .emoji { font-size:17px; line-height:1.25; flex:none; }
+  .item b { display:block; font-weight:600; font-size:13px; letter-spacing:-.005em; }
+  .item small { color:var(--muted); font-size:11.5px; }
+  .item .flags { margin-left:auto; font-size:11px; color:var(--muted); flex:none; opacity:.8; }
+
+  .pane-edit { overflow-y:auto; padding:22px 26px 40px; min-height:0; }
+  .empty { color:var(--muted); padding:70px 20px; text-align:center; font-size:13.5px; }
+  .empty::before { content:'📍'; display:block; font-size:30px; margin-bottom:12px; opacity:.5; }
+
+  .field { margin-bottom:16px; }
+  .field > label {
+    display:block; font-size:11px; font-weight:700; margin-bottom:6px;
+    text-transform:uppercase; letter-spacing:.06em; color:var(--muted);
+  }
+  .ro {
+    background:var(--surface-2); border:1px solid var(--border); border-radius:var(--r);
+    padding:9px 11px; font-size:13px; color:var(--fg);
+  }
+  .hint { font-size:11.5px; color:var(--muted); margin-top:5px; line-height:1.45; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:620px) { .grid2 { grid-template-columns:1fr; } }
+  #map { height:230px; border-radius:var(--r); border:1px solid var(--border); overflow:hidden; box-shadow:var(--sh-1); }
+
+  .tags { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; min-height:26px; align-items:center; }
+  .tag {
+    display:inline-flex; align-items:center; gap:6px; padding:4px 6px 4px 11px; border-radius:20px;
+    background:var(--accent-soft); border:1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+    font-size:12px; font-weight:500;
+  }
+  .tag button {
+    color:var(--muted); font-size:15px; line-height:1; width:17px; height:17px;
+    border-radius:50%; display:grid; place-items:center;
+  }
+  .tag button:hover { color:#fff; background:var(--danger); }
+  .checkline { display:flex; align-items:center; gap:9px; font-size:13px; padding:10px 12px;
+               background:var(--surface-2); border-radius:var(--r); }
+  .checkline input { width:auto; accent-color:var(--accent); }
+
+  /* ---- category manager ---- */
+  .catrow {
+    display:grid; grid-template-columns:56px 1fr 48px auto auto; gap:9px; align-items:center;
+    padding:9px 10px; border:1px solid var(--border); border-radius:var(--r);
+    margin-bottom:7px; background:var(--surface-2);
+  }
+  .catrow input[type=color] { padding:2px; height:34px; cursor:pointer; border-radius:7px; }
+  .catrow .emoji-in { text-align:center; font-size:18px; padding:7px 4px; }
+  .catrow .cid { font-size:10.5px; color:var(--muted); margin-top:3px; }
+  .catrow .used { font-size:11.5px; color:var(--muted); white-space:nowrap; }
+  .iconbtn {
+    width:29px; height:29px; border-radius:7px; display:grid; place-items:center;
+    color:var(--muted); font-size:13px; transition:background .12s, color .12s;
+  }
+  .iconbtn:hover:not(:disabled) { background:var(--border); color:var(--fg); }
+  .iconbtn.del:hover { background:var(--danger); color:#fff; }
+  .iconbtn:disabled { opacity:.25; cursor:default; }
+  .reassign { display:flex; gap:8px; align-items:center; margin-top:9px; }
+  .reassign select { flex:1; }
+
+  /* ---- modals ---- */
+  .modal {
+    position:fixed; inset:0; background:rgba(18,16,13,.55); backdrop-filter:blur(3px);
+    display:grid; place-items:center; padding:20px; z-index:50;
+    animation:fade .15s ease-out;
+  }
+  @keyframes fade { from { opacity:0; } }
+  .modal-card {
+    background:var(--surface); border-radius:14px; padding:22px; width:100%; max-width:620px;
+    max-height:88vh; overflow-y:auto; box-shadow:var(--sh-2); border:1px solid var(--border);
+    animation:pop .17s cubic-bezier(.2,.9,.3,1.2);
+  }
+  @keyframes pop { from { opacity:0; transform:translateY(10px) scale(.98); } }
+  .modal-card h2 { margin:0 0 5px; font-size:16.5px; letter-spacing:-.01em; }
+  .modal-card p.sub { margin:0 0 16px; font-size:12.5px; color:var(--muted); line-height:1.6; }
+  .modal-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; align-items:center; }
+
+  .report {
+    border-radius:var(--r); padding:11px 14px; font-size:13px; margin-top:14px;
+    border-left:3px solid var(--border); background:var(--surface-2);
+  }
+  .report.ok  { border-left-color:var(--ok);     background:color-mix(in srgb, var(--ok) 8%, var(--surface-2)); }
+  .report.err { border-left-color:var(--danger); background:color-mix(in srgb, var(--danger) 8%, var(--surface-2)); }
+  .report ul { margin:7px 0 0; padding-left:18px; line-height:1.6; }
+  .report li::marker { color:var(--muted); }
+
+  .toast {
+    position:fixed; left:50%; bottom:26px; transform:translateX(-50%); z-index:80;
+    background:#1d1c1a; color:#fff; padding:11px 20px; border-radius:22px; font-size:13px;
+    box-shadow:var(--sh-2); animation:pop .18s ease-out; max-width:80vw; text-align:center;
+  }
+  .toast.bad { background:var(--danger); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Places Editor</h1>
+  <button class="btn primary" id="btn-open">Open GeoJSON…</button>
+  <button class="btn" id="btn-save" disabled>Save</button>
+  <button class="btn" id="btn-import" disabled>Import / append…</button>
+  <button class="btn" id="btn-url" disabled>Add from Maps URL…</button>
+  <button class="btn" id="btn-cats" disabled>🎨 Categories…</button>
+  <div class="spacer"></div>
+  <button class="btn" id="btn-key">API key…</button>
+  <div class="filemeta" id="filemeta"><span>No file open</span></div>
+</header>
+
+<!-- Category manager -->
+<div class="modal" id="m-cats" hidden>
+  <div class="modal-card" style="max-width:720px">
+    <h2>Categories</h2>
+    <p class="sub">
+      Stored inside the GeoJSON file itself, so the app picks up your changes on its next
+      refresh — nothing else to keep in sync. Emoji, label and colour are editable; the id is
+      fixed once created, because places reference it.
+    </p>
+    <div id="cat-rows"></div>
+    <div id="cat-report"></div>
+    <div class="modal-actions" style="justify-content:space-between">
+      <button class="btn" id="cat-add">+ Add category</button>
+      <span style="display:flex; gap:8px">
+        <button class="btn" id="cat-reset">Reset to defaults</button>
+        <button class="btn primary" data-close="m-cats">Done</button>
+      </span>
+    </div>
+  </div>
+</div>
+
+<!-- Places API key -->
+<div class="modal" id="m-key" hidden>
+  <div class="modal-card">
+    <h2>Google Places API key</h2>
+    <p class="sub">
+      Optional. Without it, adding from a URL gives you name and coordinates only. With it, the
+      editor fetches address, rating, opening hours, phone, website and Google's category.<br><br>
+      Stored in this browser's <code>localStorage</code> — never written into the file or the source.
+      Restrict the key to the Places API in the Cloud Console, and set a daily quota cap so a mistake
+      cannot run up a bill.
+    </p>
+    <div class="field">
+      <input type="password" id="key-input" placeholder="AIza…" autocomplete="off" spellcheck="false">
+    </div>
+    <div id="key-report"></div>
+    <div class="modal-actions">
+      <button class="btn danger" id="key-clear">Forget key</button>
+      <div class="spacer"></div>
+      <button class="btn" data-close="m-key">Cancel</button>
+      <button class="btn primary" id="key-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<main>
+  <section class="pane-list">
+    <div class="listtools">
+      <input id="q" type="search" placeholder="Search name, note, tag, address…" autocomplete="off">
+      <div class="row">
+        <select id="fbucket"><option value="">All categories</option></select>
+        <select id="fsort">
+          <option value="name">A–Z</option>
+          <option value="added">Recently added</option>
+          <option value="bucket">By category</option>
+        </select>
+      </div>
+      <div class="count" id="count">—</div>
+    </div>
+    <div class="list" id="list"></div>
+  </section>
+
+  <section class="pane-edit" id="edit">
+    <p class="empty">Open a GeoJSON file to begin.</p>
+  </section>
+</main>
+
+<!-- Import modal -->
+<div class="modal" id="m-import" hidden>
+  <div class="modal-card">
+    <h2>Import and append</h2>
+    <p class="sub">Paste a GeoJSON FeatureCollection, or choose a file. Existing places are never
+      overwritten — anything already present (matched on <code>placeId</code>) is skipped, and only
+      genuinely new features are appended.</p>
+    <div class="field">
+      <input type="file" id="imp-file" accept=".geojson,.json,application/geo+json,application/json">
+    </div>
+    <div class="field">
+      <textarea id="imp-text" placeholder='{"type":"FeatureCollection","features":[…]}' style="min-height:180px"></textarea>
+    </div>
+    <div id="imp-report"></div>
+    <div class="modal-actions">
+      <button class="btn" data-close="m-import">Cancel</button>
+      <button class="btn primary" id="imp-go">Append</button>
+    </div>
+  </div>
+</div>
+
+<!-- Google Maps URL modal -->
+<div class="modal" id="m-url" hidden>
+  <div class="modal-card">
+    <h2>Add from a Google Maps URL</h2>
+    <p class="sub">
+      Paste the <strong>long URL from your browser's address bar</strong> — not a
+      <code>maps.app.goo.gl</code> share link. Short links have to be followed to resolve, and
+      Google blocks that from a browser, so they cannot be read here.<br><br>
+      A URL yields name, coordinates and place ID only. Rating, hours and Google's own category
+      are not in the URL — fill in category, notes and tags yourself after adding.
+    </p>
+    <div class="field">
+      <textarea id="url-text" placeholder="https://www.google.com/maps/place/…/@47.4979,19.0402,17z/data=…" style="min-height:90px"></textarea>
+    </div>
+    <div id="url-report"></div>
+    <div class="modal-actions">
+      <button class="btn" data-close="m-url">Cancel</button>
+      <button class="btn" id="url-parse">Preview</button>
+      <button class="btn primary" id="url-add" disabled>Add place</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script>
+'use strict';
+
+/* ------------------------------------------------------------------ taxonomy
+ * Mirrors data/categories.json. Embedded rather than fetched so this file works
+ * when opened directly from disk, where fetch() of a sibling file is blocked.
+ * If you retune the buckets there, mirror the ids here.
+ * ------------------------------------------------------------------------- */
+const DEFAULT_BUCKETS = [
+  { id:'restaurant', label:'Restaurant & bar', emoji:'🍽️', color:'#d1633c' },
+  { id:'cafe',       label:'Café & bakery',    emoji:'☕',  color:'#8a6240' },
+  { id:'sight',      label:'Museum & sight',   emoji:'🏛️', color:'#b5473f' },
+  { id:'shopping',   label:'Shopping',         emoji:'🛍️', color:'#2f6fdd' },
+  { id:'market',     label:'Market',           emoji:'🧺', color:'#c77d2e' },
+  { id:'park',       label:'Park & outdoors',  emoji:'🌳', color:'#3f8f4f' },
+  { id:'hotel',      label:'Hotel',            emoji:'🏨', color:'#7b5ea7' },
+  { id:'other',      label:'Other',            emoji:'📍', color:'#6b7280' }
+];
+
+/**
+ * The live taxonomy lives on the file (state.data.categories), so it travels
+ * with the data and the app sees it. Files that predate this fall back to the
+ * defaults until the user edits, at which point it is materialised onto the file.
+ */
+function buckets() {
+  return state.data?.categories?.length ? state.data.categories : DEFAULT_BUCKETS;
+}
+function materialiseCategories() {
+  if (!state.data.categories?.length) {
+    state.data.categories = structuredClone(DEFAULT_BUCKETS);
+  }
+  return state.data.categories;
+}
+const bucketOf = id => buckets().find(b => b.id === id) || buckets().at(-1);
+
+/* ------------------------------------------------------------------- state */
+const state = { handle:null, name:null, data:null, sel:-1, dirty:false };
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function toast(msg, bad) {
+  const t = document.createElement('div');
+  t.className = 'toast' + (bad ? ' bad' : '');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), bad ? 5000 : 2600);
+}
+
+function markDirty(v = true) {
+  state.dirty = v;
+  $('btn-save').disabled = !v || !state.data;
+  renderMeta();
+}
+
+function renderMeta() {
+  const el = $('filemeta');
+  if (!state.data) { el.innerHTML = '<span>No file open</span>'; return; }
+  el.innerHTML = `<span class="dot ${state.dirty ? 'dirty' : ''}"></span>
+    <span>${esc(state.name)} · ${state.data.features.length} places${state.dirty ? ' · unsaved' : ''}</span>`;
+}
+
+/* ------------------------------------------------------- shared data helpers
+ * Field shapes vary by exporter: arrays, JSON-encoded strings, or plain
+ * strings. Normalise before anything reads them.
+ * ------------------------------------------------------------------------- */
+function parseMaybeJson(v) {
+  if (typeof v !== 'string') return v;
+  const s = v.trim();
+  if (!s.startsWith('[') && !s.startsWith('{')) return v;
+  try { return JSON.parse(s); } catch { return v; }
+}
+function categoryTokens(raw) {
+  const val = parseMaybeJson(raw);
+  const parts = Array.isArray(val) ? val : String(val ?? '').split(',');
+  return parts.map(t => String(t ?? '').trim()).filter(Boolean);
+}
+
+/** Drop nulls and empties so converted records stay tidy. `false` is meaningful, so it stays. */
+function cleanProps(o) {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) =>
+    v !== null && v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0)
+  ));
+}
+
+/**
+ * exportmymap writes a bare array of place objects with lat/lng rather than
+ * GeoJSON. Convert one to a Feature, keeping every other field as a property.
+ */
+function rawToFeature(o) {
+  const lat = Number(o.lat), lng = Number(o.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const props = { ...o };
+  delete props.lat; delete props.lng;
+  return {
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [lng, lat] },
+    properties: cleanProps(props)
+  };
+}
+
+/**
+ * Accept any of the three shapes seen in the wild and return {features, note}:
+ *   - a GeoJSON FeatureCollection
+ *   - a bare array of GeoJSON Features
+ *   - a bare array of raw exportmymap place objects
+ */
+function normalizeToFeatures(d) {
+  if (d?.type === 'FeatureCollection' && Array.isArray(d.features)) {
+    return { features: d.features, note: null };
+  }
+  if (Array.isArray(d)) {
+    if (!d.length) return { features: [], note: 'Empty array.' };
+    if (d.every(x => x?.type === 'Feature')) {
+      return { features: d, note: 'Bare array of Features — wrapped in a FeatureCollection.' };
+    }
+    if (d.some(x => x && x.lat !== undefined && x.lng !== undefined)) {
+      const feats = d.map(rawToFeature).filter(Boolean);
+      const dropped = d.length - feats.length;
+      return {
+        features: feats,
+        note: `Raw exportmymap array converted to GeoJSON — ${feats.length} places` +
+              (dropped ? `, ${dropped} skipped for missing coordinates` : '') + '.'
+      };
+    }
+  }
+  return { features: null, note: null };
+}
+
+/** Identity for dedupe: placeId when present, else name + rounded coordinates. */
+function keyOf(f) {
+  const p = f.properties ?? {};
+  if (p.placeId) return `id:${p.placeId}`;
+  const c = f.geometry?.coordinates ?? [];
+  return `nc:${String(p.name ?? '').toLowerCase()}|${(+c[0]).toFixed(5)}|${(+c[1]).toFixed(5)}`;
+}
+
+const userOf = f => (f.properties.user ??= {});
+
+/* ------------------------------------------------------------- file open/save */
+const hasFSA = typeof window.showOpenFilePicker === 'function';
+
+async function openFile() {
+  try {
+    if (hasFSA) {
+      const [h] = await window.showOpenFilePicker({
+        types: [{ description:'GeoJSON', accept:{ 'application/geo+json':['.geojson'], 'application/json':['.json'] } }]
+      });
+      const file = await h.getFile();
+      loadText(await file.text(), file.name);
+      state.handle = h;
+    } else {
+      const inp = document.createElement('input');
+      inp.type = 'file';
+      inp.accept = '.geojson,.json';
+      inp.onchange = async () => {
+        const f = inp.files[0];
+        if (f) loadText(await f.text(), f.name);
+      };
+      inp.click();
+    }
+  } catch (e) {
+    if (e?.name !== 'AbortError') toast(`Could not open: ${e.message}`, true);
+  }
+}
+
+function loadText(text, name) {
+  let d;
+  try { d = JSON.parse(text); }
+  catch (e) { return toast(`Not valid JSON: ${e.message}`, true); }
+
+  const { features, note } = normalizeToFeatures(d);
+  if (!features) {
+    return toast('Not GeoJSON, and not a recognisable place array.', true);
+  }
+  for (const f of features) f.properties = f.properties ?? {};
+
+  state.data = { type:'FeatureCollection', features };
+  state.name = name.replace(/\.json$/i, '.geojson');
+  state.sel = -1;
+
+  // A converted file is not yet what is on disk, so it starts dirty. Drop the
+  // write handle too — Save should ask where to put the .geojson rather than
+  // silently overwriting the .json it came from.
+  const converted = Boolean(note);
+  if (converted) state.handle = null;
+  markDirty(converted);
+
+  if (Array.isArray(d?.categories) && d.categories.length) state.data.categories = d.categories;
+  for (const b of ['btn-import','btn-url','btn-cats']) $(b).disabled = false;
+  buildBucketFilter();
+  renderList();
+  renderEdit();
+  toast(note ? `${note} Save to write it out.` : `Loaded ${features.length} places`);
+}
+
+async function saveFile() {
+  if (!state.data) return;
+  const text = JSON.stringify(state.data, null, 2);
+
+  try {
+    if (state.handle) {
+      const w = await state.handle.createWritable();
+      await w.write(text);
+      await w.close();
+      markDirty(false);
+      return toast('Saved');
+    }
+    if (hasFSA) {
+      const h = await window.showSaveFilePicker({
+        suggestedName: state.name || 'places.geojson',
+        types: [{ description:'GeoJSON', accept:{ 'application/geo+json':['.geojson'] } }]
+      });
+      const w = await h.createWritable();
+      await w.write(text);
+      await w.close();
+      state.handle = h;
+      markDirty(false);
+      return toast('Saved');
+    }
+    // Fallback: download a copy, then replace the file yourself.
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type:'application/geo+json' }));
+    a.download = state.name || 'places.geojson';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    markDirty(false);
+    toast('Downloaded — replace the original file with it');
+  } catch (e) {
+    if (e?.name !== 'AbortError') toast(`Could not save: ${e.message}`, true);
+  }
+}
+
+/* ------------------------------------------------------------------- list */
+function buildBucketFilter() {
+  const sel = $('fbucket');
+  sel.innerHTML = '<option value="">All categories</option>' +
+    buckets().map(b => `<option value="${b.id}">${b.emoji} ${esc(b.label)}</option>`).join('');
+}
+
+/** Effective bucket: the explicit override, else 'other' (the PWA derives; the editor does not guess). */
+const effBucket = f => f.properties.user?.bucket || 'other';
+
+function visibleIndices() {
+  const q = $('q').value.trim().toLowerCase();
+  const fb = $('fbucket').value;
+  const rows = [];
+
+  state.data.features.forEach((f, i) => {
+    if (fb && effBucket(f) !== fb) return;
+    if (q) {
+      const p = f.properties;
+      const hay = [p.name, p.address, p.city, p.district, p.note,
+                   p.user?.note, (p.user?.tags || []).join(' '), categoryTokens(p.category).join(' ')]
+        .join(' ').toLowerCase();
+      if (!hay.includes(q)) return;
+    }
+    rows.push(i);
+  });
+
+  const sort = $('fsort').value;
+  if (sort === 'name') {
+    rows.sort((a, b) => String(state.data.features[a].properties.name ?? '')
+      .localeCompare(String(state.data.features[b].properties.name ?? '')));
+  } else if (sort === 'bucket') {
+    const ord = Object.fromEntries(buckets().map((b, i) => [b.id, i]));
+    rows.sort((a, b) => (ord[effBucket(state.data.features[a])] ?? 99) -
+                        (ord[effBucket(state.data.features[b])] ?? 99));
+  } else {
+    rows.reverse();   // "recently added" = end of the file first
+  }
+  return rows;
+}
+
+function renderList() {
+  if (!state.data) return;
+  const rows = visibleIndices();
+  $('count').textContent = `${rows.length} shown · ${state.data.features.length} total`;
+
+  const box = $('list');
+  box.innerHTML = '';
+  for (const i of rows) {
+    const f = state.data.features[i];
+    const p = f.properties;
+    const b = bucketOf(effBucket(f));
+    const flags = [
+      p.user?.tags?.length ? `${p.user.tags.length}🏷` : '',
+      p.user?.hidden ? '🚫' : '',
+      p.user?.note ? '📝' : ''
+    ].filter(Boolean).join(' ');
+
+    const el = document.createElement('button');
+    el.className = 'item';
+    el.style.setProperty('--c', b.color);
+    el.setAttribute('aria-selected', String(i === state.sel));
+    el.innerHTML = `<span class="emoji">${b.emoji}</span>
+      <span><b>${esc(p.name || '(unnamed)')}</b>
+      <small>${esc([p.district, p.city].filter(Boolean).join(' · ') || b.label)}</small></span>
+      <span class="flags">${flags}</span>`;
+    el.addEventListener('click', () => { state.sel = i; renderList(); renderEdit(); });
+    box.appendChild(el);
+  }
+}
+
+/* ------------------------------------------------------------- edit panel */
+let map = null, mapMarker = null;
+
+function renderEdit() {
+  const box = $('edit');
+  if (!state.data) { box.innerHTML = '<p class="empty">Open a GeoJSON file to begin.</p>'; return; }
+  if (state.sel < 0 || !state.data.features[state.sel]) {
+    box.innerHTML = '<p class="empty">Select a place from the list.</p>';
+    map = null;
+    return;
+  }
+
+  const f = state.data.features[state.sel];
+  const p = f.properties;
+  const u = p.user ?? {};
+  const coords = f.geometry?.coordinates ?? [];
+  const rawCats = categoryTokens(p.category);
+
+  box.innerHTML = `
+    <div class="field">
+      <label>Name <span class="hint" style="font-weight:400">— read-only, Google's</span></label>
+      <div class="ro">${esc(p.name || '(unnamed)')}</div>
+    </div>
+    <div class="field">
+      <label>Address <span class="hint" style="font-weight:400">— read-only</span></label>
+      <div class="ro">${esc(p.address || '—')}</div>
+    </div>
+    ${rawCats.length ? `<div class="field">
+      <label>Google category <span class="hint" style="font-weight:400">— read-only</span></label>
+      <div class="ro">${esc(rawCats.join(' · '))}</div>
+    </div>` : ''}
+
+    <div class="grid2">
+      <div class="field">
+        <label for="e-bucket">Category</label>
+        <select id="e-bucket">
+          ${buckets().map(b => `<option value="${b.id}"${effBucket(f) === b.id ? ' selected' : ''}>${b.emoji} ${esc(b.label)}</option>`).join('')}
+        </select>
+        <div class="hint">
+          Written to <code>user.bucket</code>; overrides the app's rules.
+          <button id="e-managecats" style="color:var(--accent); font-weight:600; text-decoration:underline; padding:0">Add or edit categories…</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Coordinates</label>
+        <div class="ro">${coords.length ? `${(+coords[1]).toFixed(6)}, ${(+coords[0]).toFixed(6)}` : '— missing —'}</div>
+        <div class="hint">lat, lng (stored lng-first per GeoJSON)</div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="e-note">My note</label>
+      <textarea id="e-note" placeholder="Anything you want to remember about this place">${esc(u.note || '')}</textarea>
+    </div>
+
+    <div class="field">
+      <label>Tags</label>
+      <div class="tags" id="e-tags"></div>
+      <input id="e-tagin" placeholder="Type a tag and press Enter">
+      <div class="hint">Free-form. Comma or Enter to add.</div>
+    </div>
+
+    <div class="field checkline">
+      <input type="checkbox" id="e-hidden" ${u.hidden ? 'checked' : ''}>
+      <label for="e-hidden" style="margin:0">Hide from the map</label>
+    </div>
+
+    <div class="field">
+      <label>Location</label>
+      <div id="map"></div>
+    </div>
+
+    <div class="modal-actions" style="justify-content:space-between">
+      <button class="btn danger" id="e-delete">Delete this place</button>
+      <span style="display:flex; gap:8px">
+        ${apiKey() ? '<button class="btn" id="e-fetch">Fetch details</button>' : ''}
+        ${p.googleMapsUrl ? `<a class="btn" href="${esc(p.googleMapsUrl)}" target="_blank" rel="noopener">Open in Google Maps</a>` : ''}
+      </span>
+    </div>
+    <div id="e-report"></div>`;
+
+  renderTags();
+  wireEdit(f);
+  showOnMap(coords);
+}
+
+function renderTags() {
+  const f = state.data.features[state.sel];
+  const tags = f.properties.user?.tags || [];
+  const box = $('e-tags');
+  box.innerHTML = tags.length ? '' : '<span class="hint">No tags yet</span>';
+  tags.forEach((t, i) => {
+    const el = document.createElement('span');
+    el.className = 'tag';
+    el.innerHTML = `${esc(t)} <button aria-label="Remove ${esc(t)}">×</button>`;
+    el.querySelector('button').addEventListener('click', () => {
+      userOf(f).tags.splice(i, 1);
+      markDirty(); renderTags(); renderList();
+    });
+    box.appendChild(el);
+  });
+}
+
+function wireEdit(f) {
+  $('e-bucket').addEventListener('change', e => {
+    userOf(f).bucket = e.target.value;
+    markDirty(); renderList();
+  });
+  $('e-note').addEventListener('input', e => {
+    const v = e.target.value;
+    if (v) userOf(f).note = v; else delete userOf(f).note;
+    markDirty();
+  });
+  $('e-hidden').addEventListener('change', e => {
+    if (e.target.checked) userOf(f).hidden = true; else delete userOf(f).hidden;
+    markDirty(); renderList();
+  });
+  $('e-tagin').addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ',') return;
+    e.preventDefault();
+    const v = e.target.value.trim().replace(/,$/, '');
+    if (!v) return;
+    const u = userOf(f);
+    u.tags = u.tags || [];
+    if (!u.tags.includes(v)) u.tags.push(v);
+    e.target.value = '';
+    markDirty(); renderTags(); renderList();
+  });
+  $('e-managecats').addEventListener('click', openCats);
+
+  $('e-fetch')?.addEventListener('click', async e => {
+    const btn = e.target;
+    btn.disabled = true; btn.textContent = 'Fetching…';
+    const c = f.geometry?.coordinates ?? [];
+    const r = await enrich({
+      placeId: f.properties.placeId, name: f.properties.name,
+      lat: c[1], lng: c[0]
+    });
+    btn.disabled = false; btn.textContent = 'Fetch details';
+
+    if (!r.place) return report('e-report', 'err', 'Nothing fetched', [r.skipped]);
+
+    // Google owns these; the user block is never touched. Geometry is left
+    // alone deliberately — silently moving an existing pin would be worse
+    // than leaving a coordinate you already trust.
+    const p = r.place;
+    for (const [k, v] of Object.entries({
+      name:p.name, address:p.address, city:p.city, district:p.district,
+      postalCode:p.postalCode, country:p.country, countryCode:p.countryCode,
+      rating:p.rating, reviewCount:p.reviewCount, website:p.website,
+      phones:p.phones?.length ? p.phones : undefined,
+      hours:p.hours?.length ? p.hours : undefined,
+      category:p.category?.length ? p.category : undefined,
+      placeId:p.placeId, googleMapsUrl:p.googleMapsUrl
+    })) {
+      if (v !== undefined && v !== '' && v !== null) f.properties[k] = v;
+    }
+    markDirty(); renderList(); renderEdit();
+    toast('Details updated');
+  });
+
+  $('e-delete').addEventListener('click', () => {
+    const name = f.properties.name || 'this place';
+    if (!confirm(`Delete "${name}"? This only changes the file when you save.`)) return;
+    state.data.features.splice(state.sel, 1);
+    state.sel = -1;
+    markDirty(); renderList(); renderEdit();
+  });
+}
+
+function showOnMap(coords) {
+  if (!window.maplibregl || coords.length < 2) return;
+  map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+    center: coords, zoom: 15, attributionControl: { compact: true }
+  });
+  map.on('load', () => { mapMarker = new maplibregl.Marker({ color:'#2f6fdd' }).setLngLat(coords).addTo(map); });
+}
+
+/* ------------------------------------------------------- category manager */
+
+function catCounts() {
+  const m = new Map();
+  for (const f of state.data?.features ?? []) {
+    const b = effBucket(f);
+    m.set(b, (m.get(b) ?? 0) + 1);
+  }
+  return m;
+}
+
+/** Everything that depends on the taxonomy, WITHOUT redrawing the rows —
+ *  redrawing mid-keystroke would steal focus from the field being typed in. */
+function touchCats() {
+  markDirty();
+  buildBucketFilter();
+  renderList();
+}
+
+function renderCats() {
+  const list = materialiseCategories();
+  const counts = catCounts();
+  const box = $('cat-rows');
+  box.innerHTML = '';
+
+  list.forEach((c, i) => {
+    const n = counts.get(c.id) ?? 0;
+    const row = document.createElement('div');
+    row.className = 'catrow';
+    row.innerHTML = `
+      <input class="emoji-in" value="${esc(c.emoji || '📍')}" maxlength="6" aria-label="Emoji">
+      <div>
+        <input class="label-in" value="${esc(c.label || '')}" aria-label="Label">
+        <div class="cid">id <code>${esc(c.id)}</code></div>
+      </div>
+      <input type="color" class="color-in" value="${esc(c.color || '#6b7280')}" aria-label="Colour">
+      <span class="used">${n} place${n === 1 ? '' : 's'}</span>
+      <span style="display:flex; gap:2px">
+        <button class="iconbtn" data-act="up" ${i === 0 ? 'disabled' : ''} title="Move up">↑</button>
+        <button class="iconbtn" data-act="down" ${i === list.length - 1 ? 'disabled' : ''} title="Move down">↓</button>
+        <button class="iconbtn del" data-act="del" title="Delete">✕</button>
+      </span>`;
+
+    row.querySelector('.emoji-in').addEventListener('input', e => {
+      c.emoji = e.target.value.trim() || '📍'; touchCats();
+    });
+    row.querySelector('.label-in').addEventListener('input', e => {
+      c.label = e.target.value; touchCats();
+    });
+    row.querySelector('.color-in').addEventListener('input', e => {
+      c.color = e.target.value; touchCats();
+    });
+    row.querySelector('[data-act="up"]').addEventListener('click', () => moveCat(i, -1));
+    row.querySelector('[data-act="down"]').addEventListener('click', () => moveCat(i, 1));
+    row.querySelector('[data-act="del"]').addEventListener('click', () => askDeleteCat(i));
+
+    box.appendChild(row);
+  });
+}
+
+function moveCat(i, dir) {
+  const list = materialiseCategories();
+  const j = i + dir;
+  if (j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+  touchCats(); renderCats();
+}
+
+/** Deleting a category in use needs somewhere for those places to go. */
+function askDeleteCat(i) {
+  const list = materialiseCategories();
+  const c = list[i];
+
+  if (list.length <= 1) {
+    return report('cat-report', 'err', 'Cannot delete', ['At least one category must remain.']);
+  }
+
+  const n = catCounts().get(c.id) ?? 0;
+  if (!n) { doDeleteCat(i, null); return; }
+
+  const others = list.filter(x => x.id !== c.id);
+  $('cat-report').innerHTML = `
+    <div class="report err">
+      <strong>"${esc(c.label)}" is used by ${n} place${n === 1 ? '' : 's'}</strong>
+      <div class="reassign">
+        <select id="cat-target">
+          ${others.map(o => `<option value="${esc(o.id)}">${o.emoji} ${esc(o.label)}</option>`).join('')}
+        </select>
+        <button class="btn danger" id="cat-confirm">Reassign &amp; delete</button>
+        <button class="btn" id="cat-cancel">Cancel</button>
+      </div>
+    </div>`;
+  $('cat-confirm').addEventListener('click', () => doDeleteCat(i, $('cat-target').value));
+  $('cat-cancel').addEventListener('click', () => { $('cat-report').innerHTML = ''; });
+}
+
+function doDeleteCat(i, reassignTo) {
+  const list = materialiseCategories();
+  const c = list[i];
+  let moved = 0;
+
+  if (reassignTo) {
+    for (const f of state.data.features) {
+      if (effBucket(f) === c.id) { userOf(f).bucket = reassignTo; moved++; }
+    }
+  }
+  list.splice(i, 1);
+  touchCats(); renderCats(); renderEdit();
+  report('cat-report', 'ok', 'Deleted',
+    [`"${c.label}" removed.`, moved ? `${moved} place(s) reassigned.` : null].filter(Boolean));
+}
+
+function addCat() {
+  const list = materialiseCategories();
+  let id = 'new-category', k = 2;
+  while (list.some(c => c.id === id)) id = `new-category-${k++}`;
+
+  // Keep a catch-all last if one is there, so it stays the visual fallback.
+  const at = list.at(-1)?.id === 'other' ? list.length - 1 : list.length;
+  list.splice(at, 0, { id, label:'New category', emoji:'⭐', color:'#3f5bd9', match:[] });
+
+  touchCats(); renderCats();
+  report('cat-report', 'ok', 'Added',
+    ['Set its emoji, name and colour above. The id is fixed — places reference it.']);
+}
+
+function resetCats() {
+  if (!confirm('Reset categories to the built-in defaults?\n\nPlaces whose category no longer exists will be moved to "Other".')) return;
+  state.data.categories = structuredClone(DEFAULT_BUCKETS);
+  const ids = new Set(state.data.categories.map(c => c.id));
+  let moved = 0;
+  for (const f of state.data.features) {
+    const b = f.properties.user?.bucket;
+    if (b && !ids.has(b)) { userOf(f).bucket = 'other'; moved++; }
+  }
+  touchCats(); renderCats(); renderEdit();
+  report('cat-report', 'ok', 'Reset to defaults', [moved ? `${moved} place(s) moved to Other.` : 'No places needed moving.']);
+}
+
+/* ---------------------------------------------------------------- importing */
+function appendFeatures(incoming) {
+  const existing = new Set(state.data.features.map(keyOf));
+  let added = 0, skipped = 0, bad = 0;
+  const addedNames = [];
+
+  for (const f of incoming) {
+    if (f?.type !== 'Feature' || !Array.isArray(f.geometry?.coordinates)) { bad++; continue; }
+    f.properties = f.properties ?? {};
+    const k = keyOf(f);
+    if (existing.has(k)) { skipped++; continue; }
+    existing.add(k);
+    state.data.features.push(f);
+    addedNames.push(f.properties.name || '(unnamed)');
+    added++;
+  }
+  return { added, skipped, bad, addedNames };
+}
+
+function doImport() {
+  const raw = $('imp-text').value.trim();
+  if (!raw) return report('imp-report', 'err', 'Nothing to import', ['Paste GeoJSON, or choose a file above.']);
+
+  let d;
+  try { d = JSON.parse(raw); }
+  catch (e) { return report('imp-report', 'err', 'Not valid JSON', [e.message]); }
+
+  const { features: feats, note } = normalizeToFeatures(d);
+  if (!feats) {
+    return report('imp-report', 'err', 'Unrecognised shape',
+      ['Expected a GeoJSON FeatureCollection, a bare array of Features, or a raw exportmymap array of places with lat/lng.']);
+  }
+
+  const r = appendFeatures(feats);
+  markDirty(); renderList();
+
+  const lines = [
+    note,
+    `${r.added} appended`,
+    `${r.skipped} already present, skipped`,
+    r.bad ? `${r.bad} malformed, ignored` : null
+  ].filter(Boolean);
+  if (r.addedNames.length) lines.push('Added: ' + r.addedNames.slice(0, 12).join(', ') +
+    (r.addedNames.length > 12 ? `, +${r.addedNames.length - 12} more` : ''));
+
+  report('imp-report', r.added ? 'ok' : 'err',
+    r.added ? 'Appended' : 'Nothing new to add', lines);
+}
+
+function report(id, cls, title, lines) {
+  $(id).innerHTML = `<div class="report ${cls}"><strong>${esc(title)}</strong>
+    <ul>${lines.map(l => `<li>${esc(l)}</li>`).join('')}</ul></div>`;
+}
+
+/* --------------------------------------------------------- Google Maps URLs
+ * Long-form URLs only. The coordinates that matter are in the data= blob as
+ * !3d<lat>!4d<lng> — those are the PLACE. The @lat,lng earlier in the path is
+ * the map viewport centre, which is close but not the same thing, so it is
+ * only a fallback.
+ * ------------------------------------------------------------------------- */
+function parseMapsUrl(input) {
+  const url = String(input || '').trim();
+  if (!url) return { error:'Nothing pasted.' };
+  if (/maps\.app\.goo\.gl|goo\.gl\/maps/i.test(url)) {
+    return { error:'That is a short share link. Open it in your browser, then copy the long URL from the address bar instead.' };
+  }
+  if (!/google\.[a-z.]+\/maps/i.test(url)) return { error:'Does not look like a Google Maps URL.' };
+
+  let lat = null, lng = null, precise = false;
+  const d = url.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/);
+  const q = url.match(/[?&]query=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+  if (d) { lat = +d[1]; lng = +d[2]; precise = true; }
+  else if (q) { lat = +q[1]; lng = +q[2]; precise = true; }   // api=1 search form
+  else {
+    const at = url.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+    if (at) { lat = +at[1]; lng = +at[2]; }
+  }
+  if (lat === null || Number.isNaN(lat) || Number.isNaN(lng)) {
+    return { error:'No coordinates found in that URL.' };
+  }
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return { error:'Coordinates out of range.' };
+
+  let name = '';
+  const m = url.match(/\/maps\/place\/([^/@]+)/);
+  if (m) { try { name = decodeURIComponent(m[1]).replace(/\+/g, ' ').trim(); } catch { name = m[1]; } }
+
+  // matches place_id=, query_place_id=, destination_place_id=
+  const pid = url.match(/[?&](?:\w+_)?place_id=([\w-]+)/);
+  const hex = url.match(/!1s(0x[0-9a-f]+:0x[0-9a-f]+)/i);
+  const ftid = url.match(/!1s([\w%-]+)(?:!|$)/);
+  const placeId = pid?.[1] || hex?.[1] || (ftid && !ftid[1].startsWith('0x') ? decodeURIComponent(ftid[1]) : '') || '';
+
+  return { name, lat, lng, placeId, precise };
+}
+
+/* ------------------------------------------------------------- Places API
+ * Optional enrichment. A normal Maps URL carries a hex CID (0x…:0x…) which the
+ * Places API will not accept — only the ChIJ… form works. So unless the URL
+ * happens to carry a ChIJ id, look the place up by name with a tight location
+ * bias, which returns the whole record in one call.
+ * ------------------------------------------------------------------------- */
+const KEY_STORE = 'places-api-key';
+const apiKey = () => localStorage.getItem(KEY_STORE) || '';
+
+const PLACE_FIELDS = [
+  'id','displayName','formattedAddress','location','rating','userRatingCount',
+  'regularOpeningHours','websiteUri','nationalPhoneNumber','types',
+  'primaryTypeDisplayName','googleMapsUri','addressComponents'
+];
+
+async function apiError(res) {
+  try { const j = await res.json(); return j.error?.message || `HTTP ${res.status}`; }
+  catch { return `HTTP ${res.status} ${res.statusText}`; }
+}
+
+async function placeDetails(placeId) {
+  const res = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`, {
+    headers: { 'X-Goog-Api-Key': apiKey(), 'X-Goog-FieldMask': PLACE_FIELDS.join(',') }
+  });
+  if (!res.ok) throw new Error(await apiError(res));
+  return res.json();
+}
+
+async function placeSearch(query, lat, lng) {
+  const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': apiKey(),
+      'X-Goog-FieldMask': PLACE_FIELDS.map(f => 'places.' + f).join(',')
+    },
+    body: JSON.stringify({
+      textQuery: query,
+      maxResultCount: 3,
+      locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: 300 } }
+    })
+  });
+  if (!res.ok) throw new Error(await apiError(res));
+  return (await res.json()).places || [];
+}
+
+/** Map a Places API record onto the property shape the rest of the data uses. */
+function mapPlace(p) {
+  const comp = t => p.addressComponents?.find(c => c.types?.includes(t))?.longText || '';
+  return {
+    name: p.displayName?.text || '',
+    address: p.formattedAddress || '',
+    city: comp('locality') || comp('postal_town') || '',
+    district: comp('sublocality_level_1') || comp('sublocality') || '',
+    postalCode: comp('postal_code') || '',
+    country: comp('country') || '',
+    countryCode: p.addressComponents?.find(c => c.types?.includes('country'))?.shortText || '',
+    rating: p.rating,
+    reviewCount: p.userRatingCount,
+    website: p.websiteUri || '',
+    phones: p.nationalPhoneNumber ? [p.nationalPhoneNumber] : [],
+    hours: (p.regularOpeningHours?.weekdayDescriptions || []).map(s => {
+      const i = s.indexOf(':');
+      return i < 0 ? { day: s, hours: '' } : { day: s.slice(0, i).trim(), hours: s.slice(i + 1).trim() };
+    }),
+    category: p.types || [],
+    primaryType: p.primaryTypeDisplayName?.text || '',
+    placeId: p.id || '',
+    googleMapsUrl: p.googleMapsUri || '',
+    lat: p.location?.latitude,
+    lng: p.location?.longitude
+  };
+}
+
+/** Best-effort enrichment. Never throws — returns null and a reason instead. */
+async function enrich({ placeId, name, lat, lng }) {
+  if (!apiKey()) return { skipped: 'No API key set — add one to fetch full details.' };
+  try {
+    if (placeId && /^ChIJ/i.test(placeId)) return { place: mapPlace(await placeDetails(placeId)) };
+    if (!name) return { skipped: 'No name in the URL to search on.' };
+    const hits = await placeSearch(name, lat, lng);
+    if (!hits.length) return { skipped: `Places API found nothing matching "${name}" near those coordinates.` };
+    return { place: mapPlace(hits[0]), alternatives: hits.length - 1 };
+  } catch (e) {
+    return { skipped: `Places API error: ${e.message}` };
+  }
+}
+
+let pendingPlace = null;
+
+async function previewUrl() {
+  const btn = $('url-parse');
+  const r = parseMapsUrl($('url-text').value);
+  if (r.error) {
+    pendingPlace = null; $('url-add').disabled = true;
+    return report('url-report', 'err', 'Could not read that URL', [r.error]);
+  }
+
+  btn.disabled = true; btn.textContent = 'Looking up…';
+  const en = await enrich(r);
+  btn.disabled = false; btn.textContent = 'Preview';
+
+  const p = en.place;
+  const merged = {
+    name: p?.name || r.name,
+    lat: p?.lat ?? r.lat,
+    lng: p?.lng ?? r.lng,
+    placeId: p?.placeId || r.placeId,
+    precise: r.precise || !!p,
+    rich: p || null
+  };
+  pendingPlace = merged;
+  $('url-add').disabled = false;
+
+  const dupe = state.data.features.find(f => keyOf(f) === keyOf({
+    properties: { placeId: merged.placeId, name: merged.name },
+    geometry: { coordinates: [merged.lng, merged.lat] }
+  }));
+
+  const lines = [
+    `Name: ${merged.name || '(none found)'}`,
+    `Coordinates: ${(+merged.lat).toFixed(6)}, ${(+merged.lng).toFixed(6)}`,
+    merged.precise ? null : 'Coordinates are the map centre, not the place marker — verify on the map after adding'
+  ];
+
+  if (p) {
+    lines.push(`Address: ${p.address || '—'}`);
+    if (p.rating) lines.push(`Rating: ${p.rating} (${p.reviewCount ?? 0} reviews)`);
+    if (p.primaryType) lines.push(`Google category: ${p.primaryType}`);
+    if (p.hours?.length) lines.push(`Opening hours: ${p.hours.length} days fetched`);
+    if (p.website) lines.push(`Website: ${p.website}`);
+    if (p.phones?.length) lines.push(`Phone: ${p.phones[0]}`);
+    if (en.alternatives) lines.push(`${en.alternatives} other nearby match(es) existed — the closest name match was used. Check it is the right place.`);
+  } else {
+    lines.push(en.skipped);
+  }
+  if (dupe) lines.push(`Matches existing entry "${dupe.properties.name}" — adding would duplicate it.`);
+
+  report('url-report', dupe ? 'err' : 'ok',
+    dupe ? 'Already in your file' : (p ? 'Found — full details fetched' : 'Ready to add (basic)'),
+    lines.filter(Boolean));
+}
+
+function addFromUrl() {
+  if (!pendingPlace) return;
+  const r = pendingPlace;
+  const rich = r.rich || {};
+
+  // Drop empty values so the file does not fill with nulls and empty arrays.
+  const props = Object.fromEntries(Object.entries({
+    name: r.name || 'New place',
+    address: rich.address,
+    city: rich.city,
+    district: rich.district,
+    postalCode: rich.postalCode,
+    country: rich.country,
+    countryCode: rich.countryCode,
+    rating: rich.rating,
+    reviewCount: rich.reviewCount,
+    website: rich.website,
+    phones: rich.phones?.length ? rich.phones : undefined,
+    hours: rich.hours?.length ? rich.hours : undefined,
+    category: rich.category?.length ? rich.category : undefined,
+    placeId: r.placeId || undefined,
+    googleMapsUrl: rich.googleMapsUrl || $('url-text').value.trim(),
+    dateAdded: new Date().toISOString(),
+    source: r.rich ? 'places-api' : 'maps-url',
+    user: { bucket: 'other' }
+  }).filter(([, v]) => v !== undefined && v !== '' && v !== null));
+
+  const feature = {
+    type:'Feature',
+    geometry:{ type:'Point', coordinates:[r.lng, r.lat] },
+    properties: props
+  };
+  state.data.features.push(feature);
+  state.sel = state.data.features.length - 1;
+  markDirty();
+  $('m-url').hidden = true;
+  $('url-text').value = '';
+  $('url-report').innerHTML = '';
+  pendingPlace = null;
+  $('url-add').disabled = true;
+  $('fbucket').value = '';
+  $('q').value = '';
+  renderList(); renderEdit();
+  toast('Added — now set its category, note and tags');
+}
+
+/* ------------------------------------------------------------------ wiring */
+$('btn-open').addEventListener('click', openFile);
+$('btn-save').addEventListener('click', saveFile);
+$('btn-import').addEventListener('click', () => {
+  $('imp-text').value = ''; $('imp-report').innerHTML = ''; $('m-import').hidden = false;
+});
+$('btn-url').addEventListener('click', () => {
+  $('url-report').innerHTML = ''; $('url-add').disabled = true; $('m-url').hidden = false; $('url-text').focus();
+});
+$('imp-go').addEventListener('click', doImport);
+$('imp-file').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  if (f) { $('imp-text').value = await f.text(); report('imp-report','ok','File read',[`${f.name} loaded into the box below — press Append.`]); }
+});
+$('url-parse').addEventListener('click', previewUrl);
+
+function openCats() {
+  if (!state.data) return toast('Open a file first.', true);
+  $('cat-report').innerHTML = '';
+  renderCats();
+  $('m-cats').hidden = false;
+}
+$('btn-cats').addEventListener('click', openCats);
+$('cat-add').addEventListener('click', addCat);
+$('cat-reset').addEventListener('click', resetCats);
+
+$('btn-key').addEventListener('click', () => {
+  $('key-input').value = apiKey();
+  $('key-report').innerHTML = '';
+  $('m-key').hidden = false;
+});
+$('key-save').addEventListener('click', () => {
+  const v = $('key-input').value.trim();
+  if (v) localStorage.setItem(KEY_STORE, v); else localStorage.removeItem(KEY_STORE);
+  $('m-key').hidden = true;
+  renderEdit();
+  toast(v ? 'API key saved' : 'API key cleared');
+});
+$('key-clear').addEventListener('click', () => {
+  localStorage.removeItem(KEY_STORE);
+  $('key-input').value = '';
+  renderEdit();
+  toast('API key forgotten');
+});
+$('url-add').addEventListener('click', addFromUrl);
+
+for (const el of document.querySelectorAll('[data-close]')) {
+  el.addEventListener('click', () => { $(el.dataset.close).hidden = true; });
+}
+for (const id of ['q','fbucket','fsort']) $(id).addEventListener('input', renderList);
+
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveFile(); }
+  if (e.key === 'Escape') for (const m of document.querySelectorAll('.modal')) m.hidden = true;
+});
+window.addEventListener('beforeunload', e => {
+  if (state.dirty) { e.preventDefault(); e.returnValue = ''; }
+});
+
+if (!hasFSA) {
+  toast('This browser cannot save in place — saving will download a copy instead.', true);
+}
+</script>
+</body>
+</html>
