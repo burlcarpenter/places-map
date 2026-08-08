@@ -1,6 +1,6 @@
 import { loadTaxonomy, buckets, bucketById, annotate, categoryLabel, parseMaybeJson } from './categories.js';
 import { getPlaces, setPlaces, getSettings, saveSettings } from './store.js';
-import { fetchPlaces, diff } from './sync.js';
+import { fetchPlaces, diff, sanitizeToken } from './sync.js';
 
 const $ = id => document.getElementById(id);
 const SRC = 'places';
@@ -464,7 +464,7 @@ async function saveFromForm() {
     owner: $('set-owner').value.trim(),
     repo:  $('set-repo').value.trim(),
     path:  $('set-path').value.trim().replace(/^\/+/, ''),
-    token: $('set-token').value.trim()
+    token: sanitizeToken($('set-token').value)
   });
 }
 

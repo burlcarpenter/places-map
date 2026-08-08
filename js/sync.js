@@ -1,8 +1,29 @@
 // GitHub private-repo fetch. Same call Phase 0 validated — 200 in ~486ms, CORS clean.
 
+/**
+ * Strip characters that cannot legally appear in an HTTP header value.
+ * Pasting a token on a phone routinely drags in a non-breaking space, a
+ * zero-width joiner, or a smart quote; the resulting fetch() throws before any
+ * request is sent, which looks exactly like a network failure. GitHub tokens
+ * are plain ASCII, so anything else is contamination and safe to drop.
+ */
+export function sanitizeToken(raw) {
+  // \s covers ordinary and non-breaking spaces; the rest are zero-width
+  // characters and the soft hyphen, which \s does not match.
+  return String(raw ?? '').replace(/[\s\u200B-\u200D\uFEFF\u00AD]/g, '');
+}
+
 export async function fetchPlaces({ owner, repo, path, token }) {
   if (!owner || !repo || !path || !token) {
     throw new Error('Missing GitHub settings. Open Settings and fill all four fields.');
+  }
+
+  token = sanitizeToken(token);
+  if (!/^[\x21-\x7E]+$/.test(token)) {
+    throw new Error(
+      'Token contains characters that are not valid in an HTTP header — a paste ' +
+      'on mobile usually causes this. Re-copy it from GitHub and paste again.'
+    );
   }
 
   const safePath = path.split('/').map(encodeURIComponent).join('/');
