@@ -165,6 +165,19 @@
   .reassign { display:flex; gap:8px; align-items:center; margin-top:9px; }
   .reassign select { flex:1; }
 
+  .bulkrow {
+    display:flex; align-items:center; gap:10px; padding:7px 9px; border-radius:8px;
+    cursor:pointer; font-size:13px;
+  }
+  .bulkrow:hover { background:var(--field); }
+  .bulkrow input { width:auto; flex:none; accent-color:var(--accent); }
+  .bulkrow .tok { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .bulkrow .cnt { flex:none; color:var(--muted); font-size:11.5px; }
+  .bulkrow .mapped {
+    flex:none; font-size:11px; font-weight:600; color:var(--accent);
+    background:var(--accent-soft); padding:2px 8px; border-radius:10px;
+  }
+
   /* ---- modals ---- */
   .modal {
     position:fixed; inset:0; background:rgba(18,16,13,.55); backdrop-filter:blur(3px);
@@ -208,6 +221,7 @@
   <button class="btn" id="btn-import" disabled>Import / append…</button>
   <button class="btn" id="btn-url" disabled>Add from Maps URL…</button>
   <button class="btn" id="btn-cats" disabled>🎨 Categories…</button>
+  <button class="btn" id="btn-bulk" disabled>🏷️ Bulk categorize…</button>
   <div class="spacer"></div>
   <button class="btn" id="btn-key">API key…</button>
   <div class="filemeta" id="filemeta"><span>No file open</span></div>
@@ -230,6 +244,29 @@
         <button class="btn" id="cat-reset">Reset to defaults</button>
         <button class="btn primary" data-close="m-cats">Done</button>
       </span>
+    </div>
+  </div>
+</div>
+
+<!-- Bulk categorize -->
+<div class="modal" id="m-bulk" hidden>
+  <div class="modal-card" style="max-width:680px">
+    <h2>Bulk categorize</h2>
+    <p class="sub">
+      Every distinct Google category currently in your data, most common first. Select several,
+      pick where they should go, and apply once. The mapping is saved with the file, so it
+      automatically covers new places in future imports too — it never touches a place you've set
+      by hand here in the editor, unless you explicitly re-apply below.
+    </p>
+    <div class="row" style="margin-bottom:12px; align-items:center">
+      <select id="bulk-target" style="flex:1"></select>
+      <button class="btn primary" id="bulk-apply" disabled>Apply to selected</button>
+    </div>
+    <div id="bulk-rows" style="max-height:48vh; overflow-y:auto"></div>
+    <div id="bulk-report"></div>
+    <div class="modal-actions" style="justify-content:space-between">
+      <button class="btn danger" id="bulk-reapply">Re-apply all rules now</button>
+      <button class="btn primary" data-close="m-bulk">Done</button>
     </div>
   </div>
 </div>
@@ -576,7 +613,7 @@ function loadText(text, name) {
   markDirty(converted);
 
   if (Array.isArray(d?.categories) && d.categories.length) state.data.categories = d.categories;
-  for (const b of ['btn-import','btn-url','btn-cats']) $(b).disabled = false;
+  for (const b of ['btn-import','btn-url','btn-cats','btn-bulk']) $(b).disabled = false;
   buildBucketFilter();
   renderList();
   renderEdit();
@@ -1043,11 +1080,128 @@ function resetCats() {
   report('cat-report', 'ok', 'Reset to defaults', [moved ? `${moved} place(s) moved to Other.` : 'No places needed moving.']);
 }
 
+/* ------------------------------------------------------- bulk categorize */
+
+function materialiseCategoryRules() {
+  if (!state.data.categoryRules) state.data.categoryRules = {};
+  return state.data.categoryRules;
+}
+
+/** Every distinct raw Google category token across all current places, most common first. */
+function collectRawCategoryTokens() {
+  const counts = new Map();   // lowercase token -> { display, count }
+  for (const f of state.data.features) {
+    for (const t of categoryTokens(f.properties.category)) {
+      const key = t.toLowerCase();
+      const row = counts.get(key) ?? { display: t, count: 0 };
+      row.count++;
+      counts.set(key, row);
+    }
+  }
+  return [...counts.entries()]
+    .map(([key, v]) => ({ key, display: v.display, count: v.count }))
+    .sort((a, b) => b.count - a.count || a.display.localeCompare(b.display));
+}
+
+/**
+ * Apply the saved category rules to a set of features.
+ *
+ * force:false (default — used automatically on import) only fills places
+ * with no user.bucket set yet; it never touches anything already chosen,
+ * whether by hand or by an earlier rule run.
+ *
+ * force:true (the explicit "apply"/"re-apply" actions) overwrites
+ * unconditionally — the whole point of re-applying is that a rule changed
+ * and should propagate to places it already touched.
+ *
+ * A place's own token order breaks ties when it carries several mapped
+ * tokens, matching how the live app's resolveBucket() treats the
+ * first-listed Google category as primary.
+ */
+function applyCategoryRules(features, { force = false } = {}) {
+  const rules = materialiseCategoryRules();
+  if (!Object.keys(rules).length) return 0;
+  let changed = 0;
+  for (const f of features) {
+    if (!force && f.properties.user?.bucket) continue;
+    for (const t of categoryTokens(f.properties.category)) {
+      const target = rules[t.toLowerCase()];
+      if (target) { userOf(f).bucket = target; changed++; break; }
+    }
+  }
+  return changed;
+}
+
+let bulkSelected = new Set();
+
+function renderBulk() {
+  const rules = materialiseCategoryRules();
+  const rows = collectRawCategoryTokens();
+  const box = $('bulk-rows');
+  box.innerHTML = rows.length ? '' : '<p class="hint" style="padding:8px">No Google category data in this file yet.</p>';
+
+  for (const r of rows) {
+    const label = document.createElement('label');
+    label.className = 'bulkrow';
+    const mappedTo = rules[r.key] ? bucketOf(rules[r.key]) : null;
+    label.innerHTML = `
+      <input type="checkbox" ${bulkSelected.has(r.key) ? 'checked' : ''}>
+      <span class="tok">${esc(r.display)}</span>
+      <span class="cnt">${r.count}</span>
+      ${mappedTo ? `<span class="mapped">${mappedTo.emoji} ${esc(mappedTo.label)}</span>` : ''}`;
+    label.querySelector('input').addEventListener('change', e => {
+      e.target.checked ? bulkSelected.add(r.key) : bulkSelected.delete(r.key);
+      updateBulkApplyLabel();
+    });
+    box.appendChild(label);
+  }
+
+  $('bulk-target').innerHTML = buckets().map(b => `<option value="${b.id}">${b.emoji} ${esc(b.label)}</option>`).join('');
+  updateBulkApplyLabel();
+}
+
+function updateBulkApplyLabel() {
+  const btn = $('bulk-apply');
+  btn.disabled = bulkSelected.size === 0;
+  btn.textContent = bulkSelected.size ? `Apply to selected (${bulkSelected.size})` : 'Apply to selected';
+}
+
+function openBulk() {
+  if (!state.data) return toast('Open a file first.', true);
+  bulkSelected = new Set();
+  $('bulk-report').innerHTML = '';
+  renderBulk();
+  $('m-bulk').hidden = false;
+}
+
+function doBulkApply() {
+  if (!bulkSelected.size) return;
+  const target = $('bulk-target').value;
+  const rules = materialiseCategoryRules();
+  for (const key of bulkSelected) rules[key] = target;
+
+  const changed = applyCategoryRules(state.data.features, { force: true });
+  bulkSelected = new Set();
+  markDirty(); renderList(); renderEdit(); renderBulk();
+
+  const b = bucketOf(target);
+  report('bulk-report', 'ok', `Mapped to ${b.emoji} ${esc(b.label)}`,
+    [`${changed} place(s) updated now. Saved with the file, so future imports get the same treatment automatically.`]);
+}
+
+function doBulkReapplyAll() {
+  const changed = applyCategoryRules(state.data.features, { force: true });
+  renderList(); renderEdit();
+  if (changed) markDirty();
+  report('bulk-report', 'ok', 'Re-applied all rules', [`${changed} place(s) updated.`]);
+}
+
 /* ---------------------------------------------------------------- importing */
 function appendFeatures(incoming) {
   const existing = new Set(state.data.features.map(keyOf));
   let added = 0, skipped = 0, bad = 0;
   const addedNames = [];
+  const addedFeatures = [];
 
   for (const f of incoming) {
     if (f?.type !== 'Feature' || !Array.isArray(f.geometry?.coordinates)) { bad++; continue; }
@@ -1056,10 +1210,16 @@ function appendFeatures(incoming) {
     if (existing.has(k)) { skipped++; continue; }
     existing.add(k);
     state.data.features.push(f);
+    addedFeatures.push(f);
     addedNames.push(f.properties.name || '(unnamed)');
     added++;
   }
-  return { added, skipped, bad, addedNames };
+
+  // Newly added places have nothing to clobber, so any saved bulk-categorize
+  // rule that matches their raw Google category applies automatically.
+  const ruled = applyCategoryRules(addedFeatures, { force: false });
+
+  return { added, skipped, bad, addedNames, ruled };
 }
 
 function doImport() {
@@ -1083,7 +1243,8 @@ function doImport() {
     note,
     `${r.added} appended`,
     `${r.skipped} already present, skipped`,
-    r.bad ? `${r.bad} malformed, ignored` : null
+    r.bad ? `${r.bad} malformed, ignored` : null,
+    r.ruled ? `${r.ruled} auto-categorized by your saved bulk rules` : null
   ].filter(Boolean);
   if (r.addedNames.length) lines.push('Added: ' + r.addedNames.slice(0, 12).join(', ') +
     (r.addedNames.length > 12 ? `, +${r.addedNames.length - 12} more` : ''));
@@ -1358,7 +1519,7 @@ async function importManyFiles(files) {
   $('imp-go').disabled = true;
   report('imp-report', 'ok', `Processing ${files.length} files…`, []);
 
-  let totalAdded = 0, totalSkipped = 0, totalBad = 0, failed = 0;
+  let totalAdded = 0, totalSkipped = 0, totalBad = 0, totalRuled = 0, failed = 0;
   const lines = [];
 
   for (const file of files) {
@@ -1377,7 +1538,7 @@ async function importManyFiles(files) {
       continue;
     }
     const r = appendFeatures(features);
-    totalAdded += r.added; totalSkipped += r.skipped; totalBad += r.bad;
+    totalAdded += r.added; totalSkipped += r.skipped; totalBad += r.bad; totalRuled += r.ruled;
     lines.push(`${file.name} — +${r.added}` +
       (r.skipped ? `, ${r.skipped} already present` : '') +
       (r.bad ? `, ${r.bad} malformed` : ''));
@@ -1391,6 +1552,7 @@ async function importManyFiles(files) {
     [
       `${totalSkipped} already present across the batch, skipped`,
       totalBad ? `${totalBad} malformed features ignored` : null,
+      totalRuled ? `${totalRuled} auto-categorized by your saved bulk rules` : null,
       failed ? `${failed} file(s) could not be read — see below` : null,
       ...lines
     ].filter(Boolean));
@@ -1406,6 +1568,9 @@ function openCats() {
 $('btn-cats').addEventListener('click', openCats);
 $('cat-add').addEventListener('click', addCat);
 $('cat-reset').addEventListener('click', resetCats);
+$('btn-bulk').addEventListener('click', openBulk);
+$('bulk-apply').addEventListener('click', doBulkApply);
+$('bulk-reapply').addEventListener('click', doBulkReapplyAll);
 
 $('btn-key').addEventListener('click', () => {
   $('key-input').value = apiKey();
