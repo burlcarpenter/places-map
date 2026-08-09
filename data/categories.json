@@ -28,7 +28,14 @@
     "Prefix an entry with '=' to require an EXACT token match instead of a substring.",
     "Needed where a short word hides inside unrelated ones: '=inn' so it does not",
     "catch 'dinner', '=park' so it does not catch 'parking lot', '=bar' so it does",
-    "not catch 'barber shop'."
+    "not catch 'barber shop'.",
+    "",
+    "2026-08-10: retuned from 8 broad buckets to 15 granular ones. Deliberately no",
+    "bare 'restaurant'/'cafe'/'market' catch-alls this time - splitting those into",
+    "several finer buckets each means a genuinely unqualified token (just",
+    "'Restaurant', no descriptor) has no honest way to auto-resolve which one it",
+    "means, so it falls through to Other rather than guessing. Bulk categorize is",
+    "the deliberate tool for that judgment call, not this file."
   ],
 
   "weakTokens": [
@@ -46,22 +53,104 @@
 
   "buckets": [
     {
-      "id": "hotel",
-      "label": "Hotel",
-      "emoji": "🏨",
-      "color": "#7b5ea7",
-      "match": ["hotel", "hostel", "guest house", "guesthouse", "=inn", "bed & breakfast", "apartment"]
+      "id": "sit-down-restaurant",
+      "label": "Sit-Down Restaurant",
+      "emoji": "🍽️",
+      "color": "#b5482f",
+      "match": ["bistro", "brasserie", "fine dining", "steak house", "brunch restaurant"]
     },
     {
-      "id": "market",
-      "label": "Market",
-      "emoji": "🧺",
-      "color": "#c77d2e",
-      "match": ["market", "flea market", "handicraft fair", "bazaar", "food court"]
+      "id": "casual-restaurant",
+      "label": "Casual / Takeaway Restaurant",
+      "emoji": "🥡",
+      "color": "#d68910",
+      "match": [
+        "fast food", "takeout", "take-out", "take away", "food truck",
+        "sandwich shop", "pizzeria", "hamburger", "=diner", "canteen",
+        "drive-through", "casual dining"
+      ]
     },
     {
-      "id": "park",
-      "label": "Park & outdoors",
+      "id": "coffee-roaster",
+      "label": "Coffee / Roaster",
+      "emoji": "☕",
+      "color": "#6f4e37",
+      "match": ["coffee", "espresso", "roastery", "tea house", "tea room"]
+    },
+    {
+      "id": "bakery",
+      "label": "Bakery, Patisserie, etc",
+      "emoji": "🥐",
+      "color": "#c9a15a",
+      "match": ["bakery", "patisserie", "dessert", "cookie", "ice cream", "confectionery"]
+    },
+    {
+      "id": "bar-pub-wine",
+      "label": "Bar / Pub / Wine / Cocktail",
+      "emoji": "🍷",
+      "color": "#7b2d43",
+      "match": [
+        "=bar", "wine bar", "cocktail bar", "tapas bar", "sports bar", "beer bar",
+        "=pub", "brewpub", "brewery", "winery", "wine", "cocktail",
+        "night club", "taproom", "beer"
+      ]
+    },
+    {
+      "id": "grocery-market",
+      "label": "Grocery / Food Market",
+      "emoji": "🛒",
+      "color": "#5b7a3f",
+      "match": ["grocery", "supermarket", "food market", "farmers market", "food court", "greengrocer"]
+    },
+    {
+      "id": "flea-market",
+      "label": "Flea Market",
+      "emoji": "🏺",
+      "color": "#a9663c",
+      "match": ["flea market", "handicraft fair", "bazaar", "antique market"]
+    },
+    {
+      "id": "thrift-store",
+      "label": "Thrift Store",
+      "emoji": "👕",
+      "color": "#4a6b8a",
+      "match": ["thrift", "used clothing", "second hand", "secondhand", "consignment"]
+    },
+    {
+      "id": "archaeology-history",
+      "label": "Archaeology / History",
+      "emoji": "🏛️",
+      "color": "#8b5a2b",
+      "match": ["historical landmark", "monument", "archaeological", "castle", "palace", "ruins"]
+    },
+    {
+      "id": "museum",
+      "label": "Museum",
+      "emoji": "🖼️",
+      "color": "#5b4b8a",
+      "match": ["museum"]
+    },
+    {
+      "id": "district",
+      "label": "District",
+      "emoji": "🏘️",
+      "color": "#5c7a89",
+      "match": []
+    },
+    {
+      "id": "cultural-poi",
+      "label": "Cultural Point of Interest",
+      "emoji": "🎭",
+      "color": "#9c4f96",
+      "match": [
+        "cathedral", "church", "basilica", "synagogue", "religious destination",
+        "memorial", "gallery", "observation deck", "opera house", "theater",
+        "tourist attraction"
+      ]
+    },
+    {
+      "id": "parks-nature",
+      "label": "Parks / Nature",
       "emoji": "🌳",
       "color": "#3f8f4f",
       "match": [
@@ -72,49 +161,18 @@
       ]
     },
     {
-      "id": "sight",
-      "label": "Museum & sight",
-      "emoji": "🏛️",
-      "color": "#b5473f",
-      "match": [
-        "museum", "historical landmark", "monument", "castle", "palace", "cathedral",
-        "church", "basilica", "synagogue", "religious destination", "memorial",
-        "gallery", "archaeological", "observation deck", "opera house", "theater",
-        "tourist attraction"
-      ]
+      "id": "hotels",
+      "label": "Hotels",
+      "emoji": "🏨",
+      "color": "#7b5ea7",
+      "match": ["hotel", "hostel", "guest house", "guesthouse", "=inn", "bed & breakfast", "apartment"]
     },
     {
-      "id": "cafe",
-      "label": "Café & bakery",
-      "emoji": "☕",
-      "color": "#8a6240",
-      "match": [
-        "cafe", "café", "coffee", "espresso", "tea house", "tea room", "bakery",
-        "patisserie", "dessert", "cookie", "ice cream", "confectionery", "roastery"
-      ]
-    },
-    {
-      "id": "restaurant",
-      "label": "Restaurant & bar",
-      "emoji": "🍽️",
-      "color": "#d1633c",
-      "match": [
-        "restaurant", "bistro", "brasserie", "eatery", "diner", "steak house",
-        "pizzeria", "deli", "delicatessen", "canteen", "buffet", "food",
-        "=bar", "wine bar", "cocktail bar", "tapas bar", "sports bar", "beer bar",
-        "=pub", "brewpub", "brewery", "winery", "wine", "cocktail",
-        "night club", "taproom", "beer"
-      ]
-    },
-    {
-      "id": "shopping",
-      "label": "Shopping",
-      "emoji": "🛍️",
-      "color": "#2f6fdd",
-      "match": [
-        "store", "shop", "wholesaler", "boutique", "mall", "supermarket",
-        "grocery", "pharmacy", "bookshop", "bookstore", "supplier"
-      ]
+      "id": "christmas-market",
+      "label": "Christmas Market",
+      "emoji": "🎄",
+      "color": "#1e6b4f",
+      "match": ["christmas market", "holiday market"]
     },
     {
       "id": "other",
