@@ -259,7 +259,14 @@
       in the editor, unless you explicitly re-apply below.
     </p>
     <input id="bulk-search" type="search" placeholder="Search categories…" autocomplete="off"
-           spellcheck="false" style="margin-bottom:10px">
+           spellcheck="false" style="margin-bottom:8px">
+    <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:10px; font-size:12.5px; color:var(--muted)">
+      <span id="bulk-count"></span>
+      <span style="display:flex; gap:14px">
+        <button type="button" class="linklike" id="bulk-selectall">Select all shown</button>
+        <button type="button" class="linklike" id="bulk-clearsel">Clear selection</button>
+      </span>
+    </div>
     <div class="row" style="margin-bottom:12px; align-items:center">
       <select id="bulk-target" style="flex:1"></select>
       <button class="btn primary" id="bulk-apply" disabled>Apply to selected</button>
@@ -1136,14 +1143,28 @@ function applyCategoryRules(features, { force = false } = {}) {
 
 let bulkSelected = new Set();
 
-function renderBulk() {
-  const rules = materialiseCategoryRules();
+/**
+ * Whatever the search box currently narrows the checklist down to — the
+ * single source of truth for both the row list itself and "Select all
+ * shown", so the two can never disagree about what "shown" means.
+ */
+function visibleBulkRows() {
   const term = $('bulk-search').value.trim().toLowerCase();
   const all = collectRawCategoryTokens();
-  const rows = term ? all.filter(r => r.display.toLowerCase().includes(term)) : all;
+  return term ? all.filter(r => r.display.toLowerCase().includes(term)) : all;
+}
+
+function renderBulk() {
+  const rules = materialiseCategoryRules();
+  const total = collectRawCategoryTokens().length;
+  const rows = visibleBulkRows();
   const box = $('bulk-rows');
 
-  if (!all.length) {
+  $('bulk-count').textContent = rows.length === total
+    ? `${total} categor${total === 1 ? 'y' : 'ies'}`
+    : `${rows.length} of ${total} shown`;
+
+  if (!total) {
     box.innerHTML = '<p class="hint" style="padding:8px">No Google category data in this file yet.</p>';
   } else if (!rows.length) {
     box.innerHTML = `<p class="hint" style="padding:8px">No category matches "${esc($('bulk-search').value.trim())}".</p>`;
@@ -1584,6 +1605,14 @@ $('btn-bulk').addEventListener('click', openBulk);
 $('bulk-apply').addEventListener('click', doBulkApply);
 $('bulk-reapply').addEventListener('click', doBulkReapplyAll);
 $('bulk-search').addEventListener('input', renderBulk);
+$('bulk-selectall').addEventListener('click', () => {
+  for (const r of visibleBulkRows()) bulkSelected.add(r.key);
+  renderBulk();
+});
+$('bulk-clearsel').addEventListener('click', () => {
+  bulkSelected.clear();
+  renderBulk();
+});
 
 $('btn-key').addEventListener('click', () => {
   $('key-input').value = apiKey();
