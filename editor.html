@@ -171,6 +171,8 @@
   }
   .bulkrow:hover { background:var(--field); }
   .bulkrow input { width:auto; flex:none; accent-color:var(--accent); }
+  .bulkrow:has(input:disabled) { opacity:.4; cursor:default; }
+  .bulkrow:has(input:disabled):hover { background:none; }
   .bulkrow .tok { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .bulkrow .cnt { flex:none; color:var(--muted); font-size:11.5px; }
   .bulkrow .mapped {
@@ -393,12 +395,23 @@ const DEFAULT_BUCKETS = [
 ];
 
 /**
+ * Always available, in every file, without needing to be created — a place
+ * flagged this way hasn't been fully vetted yet, regardless of whatever real
+ * category it also carries. Deliberately NOT part of the editable taxonomy
+ * (materialiseCategories() never includes it): the Category manager can't
+ * rename, recolour or delete it, since doing so would silently break every
+ * place already marked unvetted. Must mirror js/categories.js exactly.
+ */
+const RESEARCH_NEEDED = { id:'research-needed', label:'Research Needed', emoji:'🔍', color:'#e0592a' };
+
+/**
  * The live taxonomy lives on the file (state.data.categories), so it travels
  * with the data and the app sees it. Files that predate this fall back to the
  * defaults until the user edits, at which point it is materialised onto the file.
  */
 function buckets() {
-  return state.data?.categories?.length ? state.data.categories : DEFAULT_BUCKETS;
+  const base = state.data?.categories?.length ? state.data.categories : DEFAULT_BUCKETS;
+  return [...base, RESEARCH_NEEDED];
 }
 function materialiseCategories() {
   if (!state.data.categories?.length) {
@@ -406,7 +419,10 @@ function materialiseCategories() {
   }
   return state.data.categories;
 }
-const bucketOf = id => buckets().find(b => b.id === id) || buckets().at(-1);
+// Fallback on a miss is DEFAULT_BUCKETS's own last entry ("Other"), not
+// buckets().at(-1) — since Research Needed is now appended last, that would
+// wrongly turn "unrecognised category id" into "needs research".
+const bucketOf = id => buckets().find(b => b.id === id) || DEFAULT_BUCKETS.at(-1);
 
 /**
  * Fixed small set, unlike categories — not user-editable, no taxonomy file.
@@ -673,8 +689,19 @@ function buildBucketFilter() {
     buckets().map(b => `<option value="${b.id}">${b.emoji} ${esc(b.label)}</option>`).join('');
 }
 
-/** Effective bucket: the explicit override, else 'other' (the PWA derives; the editor does not guess). */
-const effBucket = f => f.properties.user?.bucket || 'other';
+/**
+ * Effective categories: the explicit override (up to 2), else 'other' — the
+ * PWA derives one from Google's raw category when nothing is set; the
+ * editor never guesses, only shows what's actually been chosen.
+ * Reads the legacy singular user.bucket too, so places categorised before
+ * multi-category existed keep working with no migration step.
+ */
+function effBuckets(f) {
+  const u = f.properties.user ?? {};
+  if (Array.isArray(u.buckets) && u.buckets.length) return u.buckets.slice(0, 2);
+  if (u.bucket) return [u.bucket];
+  return ['other'];
+}
 
 function visibleIndices() {
   const q = $('q').value.trim().toLowerCase();
@@ -682,7 +709,7 @@ function visibleIndices() {
   const rows = [];
 
   state.data.features.forEach((f, i) => {
-    if (fb && effBucket(f) !== fb) return;
+    if (fb && !effBuckets(f).includes(fb)) return;
     if (q) {
       const p = f.properties;
       const hay = [p.name, p.address, p.city, p.district, p.note,
@@ -699,8 +726,9 @@ function visibleIndices() {
       .localeCompare(String(state.data.features[b].properties.name ?? '')));
   } else if (sort === 'bucket') {
     const ord = Object.fromEntries(buckets().map((b, i) => [b.id, i]));
-    rows.sort((a, b) => (ord[effBucket(state.data.features[a])] ?? 99) -
-                        (ord[effBucket(state.data.features[b])] ?? 99));
+    // Sorts by the first-listed category — a place's own "primary" slot.
+    rows.sort((a, b) => (ord[effBuckets(state.data.features[a])[0]] ?? 99) -
+                        (ord[effBuckets(state.data.features[b])[0]] ?? 99));
   } else {
     rows.reverse();   // "recently added" = end of the file first
   }
@@ -717,7 +745,7 @@ function renderList() {
   for (const i of rows) {
     const f = state.data.features[i];
     const p = f.properties;
-    const b = bucketOf(effBucket(f));
+    const bs = effBuckets(f).map(bucketOf);
     const flags = [
       p.user?.tags?.length ? `${p.user.tags.length}🏷` : '',
       p.user?.hidden ? '🚫' : '',
@@ -726,11 +754,11 @@ function renderList() {
 
     const el = document.createElement('button');
     el.className = 'item';
-    el.style.setProperty('--c', b.color);
+    el.style.setProperty('--c', bs[0].color);   // stripe follows the primary category
     el.setAttribute('aria-selected', String(i === state.sel));
-    el.innerHTML = `<span class="emoji">${b.emoji}</span>
+    el.innerHTML = `<span class="emoji">${bs.map(b => b.emoji).join(' ')}</span>
       <span><b>${esc(p.name || '(unnamed)')}</b>
-      <small>${esc([p.district, p.city].filter(Boolean).join(' · ') || b.label)}</small></span>
+      <small>${esc([p.district, p.city].filter(Boolean).join(' · ') || bs.map(b => b.label).join(' + '))}</small></span>
       <span class="flags">${flags}</span>`;
     el.addEventListener('click', () => { state.sel = i; renderList(); renderEdit(); });
     box.appendChild(el);
@@ -770,22 +798,26 @@ function renderEdit() {
     </div>` : ''}
     ${googleDetailsHtml(p)}
 
-    <div class="grid2">
-      <div class="field">
-        <label for="e-bucket">Category</label>
-        <select id="e-bucket">
-          ${buckets().map(b => `<option value="${b.id}"${effBucket(f) === b.id ? ' selected' : ''}>${b.emoji} ${esc(b.label)}</option>`).join('')}
-        </select>
-        <div class="hint">
-          Written to <code>user.bucket</code>; overrides the app's rules.
-          <button id="e-managecats" style="color:var(--accent); font-weight:600; text-decoration:underline; padding:0">Add or edit categories…</button>
-        </div>
+    <div class="field">
+      <label>Category <span class="hint" style="font-weight:400">— up to 2</span></label>
+      <div id="e-catpick" style="max-height:180px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--r); padding:2px">
+        ${buckets().map(b => `
+          <label class="bulkrow">
+            <input type="checkbox" value="${b.id}" ${effBuckets(f).includes(b.id) ? 'checked' : ''}>
+            <span>${b.emoji} ${esc(b.label)}</span>
+          </label>`).join('')}
       </div>
-      <div class="field">
-        <label>Coordinates</label>
-        <div class="ro">${coords.length ? `${(+coords[1]).toFixed(6)}, ${(+coords[0]).toFixed(6)}` : '— missing —'}</div>
-        <div class="hint">lat, lng (stored lng-first per GeoJSON)</div>
+      <div class="hint">
+        Written to <code>user.buckets</code>; overrides the app's rules. Capped at 2 — the rest
+        grey out once two are checked; uncheck one to pick a different second category.
+        <button id="e-managecats" style="color:var(--accent); font-weight:600; text-decoration:underline; padding:0">Add or edit categories…</button>
       </div>
+    </div>
+
+    <div class="field">
+      <label>Coordinates</label>
+      <div class="ro">${coords.length ? `${(+coords[1]).toFixed(6)}, ${(+coords[0]).toFixed(6)}` : '— missing —'}</div>
+      <div class="hint">lat, lng (stored lng-first per GeoJSON)</div>
     </div>
 
     <div class="grid2">
@@ -858,11 +890,31 @@ function renderTags() {
   });
 }
 
+/** Enforces the 2-category cap by disabling the rest once two are checked,
+ *  rather than silently swapping one out — nothing changes without the user
+ *  explicitly unchecking something first. */
+function wireCatPick(f) {
+  const inputs = [...$('e-catpick').querySelectorAll('input[type=checkbox]')];
+
+  function refreshDisabled() {
+    const checkedCount = inputs.filter(i => i.checked).length;
+    for (const i of inputs) i.disabled = checkedCount >= 2 && !i.checked;
+  }
+  refreshDisabled();
+
+  for (const input of inputs) {
+    input.addEventListener('change', () => {
+      const chosen = inputs.filter(i => i.checked).map(i => i.value);
+      if (chosen.length) userOf(f).buckets = chosen; else delete userOf(f).buckets;
+      delete userOf(f).bucket;   // fully migrate off the legacy singular field on any edit
+      refreshDisabled();
+      markDirty(); renderList();
+    });
+  }
+}
+
 function wireEdit(f) {
-  $('e-bucket').addEventListener('change', e => {
-    userOf(f).bucket = e.target.value;
-    markDirty(); renderList();
-  });
+  wireCatPick(f);
   $('e-note').addEventListener('input', e => {
     const v = e.target.value;
     if (v) userOf(f).note = v; else delete userOf(f).note;
@@ -952,11 +1004,12 @@ function showOnMap(coords) {
 
 /* ------------------------------------------------------- category manager */
 
+/** A dual-category place counts toward both — "how many places carry this
+ *  category" is genuinely true of both when a place carries two. */
 function catCounts() {
   const m = new Map();
   for (const f of state.data?.features ?? []) {
-    const b = effBucket(f);
-    m.set(b, (m.get(b) ?? 0) + 1);
+    for (const b of effBuckets(f)) m.set(b, (m.get(b) ?? 0) + 1);
   }
   return m;
 }
@@ -1046,6 +1099,15 @@ function askDeleteCat(i) {
   $('cat-cancel').addEventListener('click', () => { $('cat-report').innerHTML = ''; });
 }
 
+/** Swaps one category id for another in a place's bucket list, preserving
+ *  whatever else is set (e.g. a "Research Needed" second tag survives its
+ *  companion category being reassigned or deleted). */
+function replaceBucket(f, oldId, newId) {
+  const next = [...new Set(effBuckets(f).map(b => b === oldId ? newId : b))];
+  userOf(f).buckets = next;
+  delete userOf(f).bucket;
+}
+
 function doDeleteCat(i, reassignTo) {
   const list = materialiseCategories();
   const c = list[i];
@@ -1053,7 +1115,7 @@ function doDeleteCat(i, reassignTo) {
 
   if (reassignTo) {
     for (const f of state.data.features) {
-      if (effBucket(f) === c.id) { userOf(f).bucket = reassignTo; moved++; }
+      if (effBuckets(f).includes(c.id)) { replaceBucket(f, c.id, reassignTo); moved++; }
     }
   }
   list.splice(i, 1);
@@ -1079,11 +1141,16 @@ function addCat() {
 function resetCats() {
   if (!confirm('Reset categories to the built-in defaults?\n\nPlaces whose category no longer exists will be moved to "Other".')) return;
   state.data.categories = structuredClone(DEFAULT_BUCKETS);
-  const ids = new Set(state.data.categories.map(c => c.id));
+  const validIds = new Set(buckets().map(c => c.id));   // includes Research Needed, always valid
   let moved = 0;
   for (const f of state.data.features) {
-    const b = f.properties.user?.bucket;
-    if (b && !ids.has(b)) { userOf(f).bucket = 'other'; moved++; }
+    const current = effBuckets(f);
+    const next = [...new Set(current.map(b => validIds.has(b) ? b : 'other'))];
+    if (JSON.stringify(next) !== JSON.stringify(current)) {
+      userOf(f).buckets = next;
+      delete userOf(f).bucket;
+      moved++;
+    }
   }
   touchCats(); renderCats(); renderEdit();
   report('cat-report', 'ok', 'Reset to defaults', [moved ? `${moved} place(s) moved to Other.` : 'No places needed moving.']);
@@ -1132,10 +1199,20 @@ function applyCategoryRules(features, { force = false } = {}) {
   if (!Object.keys(rules).length) return 0;
   let changed = 0;
   for (const f of features) {
-    if (!force && f.properties.user?.bucket) continue;
+    const u = f.properties.user;
+    const hasExplicit = (Array.isArray(u?.buckets) && u.buckets.length) || u?.bucket;
+    if (!force && hasExplicit) continue;
+
     for (const t of categoryTokens(f.properties.category)) {
       const target = rules[t.toLowerCase()];
-      if (target) { userOf(f).bucket = target; changed++; break; }
+      if (!target) continue;
+      // A rule sets the PRIMARY slot only — a manually-added second category
+      // (Research Needed, most often) survives rather than being wiped.
+      const secondary = effBuckets(f)[1];
+      userOf(f).buckets = (secondary && secondary !== target) ? [target, secondary] : [target];
+      delete userOf(f).bucket;
+      changed++;
+      break;
     }
   }
   return changed;

@@ -56,6 +56,40 @@ function makePin({ emoji, color }, size = 46) {
   return { width: size * dpr, height: size * dpr, data: x.getImageData(0, 0, c.width, c.height).data };
 }
 
+/**
+ * A place with two categories gets a disc split vertically instead of
+ * white — left half one colour, right half the other, still ringed, still
+ * carrying one emoji. Sprites are shared by combination (e.g. every
+ * cafe+museum place uses the same image), so left/right is assigned by
+ * whichever id sorts first alphabetically, not by which a given place calls
+ * "primary" — otherwise every ordering of the same pair would need its own
+ * sprite for no real benefit.
+ */
+function makeSplitPin(bucketLeft, bucketRight, size = 46) {
+  const dpr = 2, c = document.createElement('canvas');
+  c.width = c.height = size * dpr;
+  const x = c.getContext('2d');
+  x.scale(dpr, dpr);
+
+  const r = size / 2 - 3, cx = size / 2, cy = size / 2;
+
+  x.beginPath(); x.moveTo(cx, cy); x.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false); x.closePath();
+  x.fillStyle = bucketRight.color; x.fill();
+
+  x.beginPath(); x.moveTo(cx, cy); x.arc(cx, cy, r, Math.PI / 2, -Math.PI / 2, false); x.closePath();
+  x.fillStyle = bucketLeft.color; x.fill();
+
+  x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.lineWidth = 2.5; x.strokeStyle = '#fff'; x.stroke();
+
+  x.font = `${Math.round(size * 0.46)}px "Segoe UI Emoji","Noto Color Emoji","Apple Color Emoji",sans-serif`;
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.lineWidth = 3; x.strokeStyle = 'rgba(255,255,255,.85)';
+  x.strokeText(bucketLeft.emoji, cx, cy + 1);   // halo — keeps the glyph legible over either colour
+  x.fillText(bucketLeft.emoji, cx, cy + 1);
+
+  return { width: size * dpr, height: size * dpr, data: x.getImageData(0, 0, c.width, c.height).data };
+}
+
 // ---------------------------------------------------------------- map setup
 
 function initMap() {
@@ -161,6 +195,26 @@ function registerIcons() {
   }
 }
 
+/**
+ * Split-colour sprites, one per two-category combination actually present in
+ * the current data — not the full combinatorial space of every possible
+ * pair, which would keep growing pointlessly as categories are added.
+ * Depends on data, so this runs after annotate(), not with registerIcons().
+ */
+function registerPairIcons() {
+  const keys = new Set();
+  for (const f of data?.features ?? []) {
+    const k = f.properties._bucketKey;
+    if (k?.includes('+')) keys.add(k);
+  }
+  for (const key of keys) {
+    const id = `pin-${key}`;
+    if (map.hasImage(id)) map.removeImage(id);
+    const [idLeft, idRight] = key.split('+');
+    map.addImage(id, makeSplitPin(bucketById(idLeft), bucketById(idRight)), { pixelRatio: 2 });
+  }
+}
+
 function addLayers() {
   map.addSource(SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
 
@@ -169,7 +223,7 @@ function addLayers() {
     type: 'symbol',
     source: SRC,
     layout: {
-      'icon-image': ['concat', 'pin-', ['get', '_bucket']],
+      'icon-image': ['concat', 'pin-', ['get', '_bucketKey']],
       'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.55, 13, 0.8, 16, 1],
       'icon-allow-overlap': true,
       'icon-ignore-placement': true
@@ -212,6 +266,7 @@ function render(fc) {
     f.properties._country = countryKey(f.properties);
     f.properties._status = statusOf(f.properties);
   }
+  registerPairIcons();   // depends on _bucketKey, which annotate() just stamped
   map.getSource(SRC).setData(data);
   buildCatPanel();
   buildCountryPanel();
@@ -230,11 +285,14 @@ function fitToData() {
 
 // ---------------------------------------------------------------- filtering
 
+/** A two-category place counts toward both totals — the chip is answering
+ *  "how many places carry this tag", and a dual-tagged place genuinely does. */
 function counts() {
   const m = new Map();
   for (const f of data?.features ?? []) {
-    const b = f.properties._bucket;
-    m.set(b, (m.get(b) ?? 0) + 1);
+    for (const b of f.properties._buckets ?? []) {
+      m.set(b, (m.get(b) ?? 0) + 1);
+    }
   }
   return m;
 }
@@ -488,8 +546,15 @@ function toggleStatusPanel(open) {
 }
 
 function applyFilter() {
+  // A place matches on category if ANY of its (up to 2) buckets are active —
+  // an empty active set must still produce a valid boolean expression that
+  // matches nothing, hence the `false` fallback rather than an empty `any`.
+  const catExpr = active.size
+    ? ['any', ...[...active].map(b => ['in', b, ['get', '_buckets']])]
+    : false;
+
   const f = ['all',
-    ['in', ['get', '_bucket'], ['literal', [...active]]],
+    catExpr,
     ['in', ['get', '_country'], ['literal', [...activeCountries]]],
     ['in', ['get', '_status'], ['literal', [...activeStatus]]]
   ];
@@ -567,7 +632,7 @@ function openSheet(feature) {
   toggleStatusPanel(false);
   const p = feature.properties ?? {};
   const [lng, lat] = feature.geometry.coordinates;
-  const b = bucketById(p._bucket);
+  const bs = (p._buckets ?? ['other']).map(bucketById);
 
   // Google Maps https deep links hand off to the native Android app automatically
   // and still work on desktop, which raw geo:/google.navigation: intents do not.
@@ -583,7 +648,7 @@ function openSheet(feature) {
   $('sheet-body').innerHTML = `
     <h2>${esc(p.name ?? 'Unnamed place')}</h2>
     <div class="kicker">
-      <span class="emoji">${b.emoji}</span><span>${esc(b.label)}</span>
+      <span class="emoji">${bs.map(b => b.emoji).join(' ')}</span><span>${bs.map(b => esc(b.label)).join(' + ')}</span>
       ${locality ? `<span>·</span><span>${esc(locality)}</span>` : ''}
     </div>
     ${statusHtml(p)}
@@ -765,7 +830,8 @@ function search(q) {
 
   placesBox.innerHTML = '';
   for (const f of hits) {
-    const p = f.properties, b = bucketById(p._bucket);
+    const p = f.properties;
+    const b = bucketById((p._buckets ?? ['other'])[0]);   // primary category — a compact row shows one
     const btn = document.createElement('button');
     btn.className = 'result';
     btn.innerHTML = `<span class="emoji">${b.emoji}</span>

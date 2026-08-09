@@ -43,12 +43,25 @@ export function applyTaxonomyFrom(geojson) {
   return changed;
 }
 
+/**
+ * Always present, in every file, without needing to be created or edited in
+ * per-file categories.json/state.data.categories — a place flagged this way
+ * hasn't been fully vetted yet, regardless of whatever real category it also
+ * carries. Not part of the user-editable taxonomy on purpose: deleting it
+ * would silently break every place still marked unvetted.
+ */
+export const RESEARCH_NEEDED = { id: 'research-needed', label: 'Research Needed', emoji: '🔍', color: '#e0592a' };
+
+function allBuckets() {
+  return [...taxonomy.buckets, RESEARCH_NEEDED];
+}
+
 export function buckets() {
-  return taxonomy.buckets;
+  return allBuckets();
 }
 
 export function bucketById(id) {
-  return taxonomy.buckets.find(b => b.id === id) ?? taxonomy.buckets.at(-1);
+  return allBuckets().find(b => b.id === id) ?? taxonomy.buckets.at(-1);
 }
 
 /**
@@ -96,41 +109,62 @@ export function categoryLabel(raw) {
 }
 
 /**
- * Resolve a GeoJSON feature to a bucket id.
+ * Resolve a GeoJSON feature to 1–2 bucket ids. Capped at two — the pin's
+ * split-colour rendering only reads cleanly as two halves; a third would
+ * need pie slices nobody asked for.
  *
- * 1. properties.user.bucket wins outright — that's the manual override the
- *    desktop editor writes, and nothing here may second-guess it.
- * 2. Otherwise scan the raw Google category string. Strong tokens first, in the
- *    order Google listed them (the first is the primary category). Weak tokens
- *    like "tourist attraction" are so generic they'd swallow everything, so they
- *    only get a say once no strong token has matched.
- * 3. Fall back to 'other'.
+ * 1. properties.user.buckets (array) wins outright if present — the
+ *    multi-select override the desktop editor writes, and nothing here may
+ *    second-guess it.
+ * 2. Falls back to the legacy singular properties.user.bucket, so every
+ *    place categorised before multi-category existed keeps working with no
+ *    migration step required.
+ * 3. Otherwise scan the raw Google category string, same as before: strong
+ *    tokens first in Google's own order (the first is primary), weak ones
+ *    like "tourist attraction" only once no strong token has matched.
+ * 4. Falls back to 'other'.
  */
-export function resolveBucket(props = {}) {
-  const override = props.user?.bucket;
-  if (override && taxonomy.buckets.some(b => b.id === override)) return override;
+export function resolveBuckets(props = {}) {
+  const validIds = new Set(allBuckets().map(b => b.id));
+
+  if (Array.isArray(props.user?.buckets) && props.user.buckets.length) {
+    const valid = props.user.buckets.filter(b => validIds.has(b));
+    if (valid.length) return valid.slice(0, 2);
+  }
+  if (props.user?.bucket && validIds.has(props.user.bucket)) {
+    return [props.user.bucket];
+  }
 
   const tokens = categoryTokens(props.category).map(t => t.toLowerCase());
-  if (!tokens.length) return 'other';
+  if (!tokens.length) return ['other'];
 
   const isWeak = t => taxonomy.weakTokens.includes(t);
 
   for (const t of tokens.filter(t => !isWeak(t))) {
     const hit = classifyToken(t);
-    if (hit) return hit;
+    if (hit) return [hit];
   }
   for (const t of tokens.filter(isWeak)) {
     const hit = classifyToken(t);
-    if (hit) return hit;
+    if (hit) return [hit];
   }
-  return 'other';
+  return ['other'];
 }
 
-/** Annotate a FeatureCollection in place, adding properties._bucket to each feature. */
+/**
+ * Annotate a FeatureCollection in place:
+ *   _buckets   — the resolved array, 1–2 ids, in the place's own order
+ *   _bucketKey — a stable, order-independent string picking the marker
+ *                sprite: one id alone, or both alphabetised and joined, so
+ *                ['cafe','museum'] and ['museum','cafe'] share one sprite
+ *                rather than needing two.
+ */
 export function annotate(geojson) {
   for (const f of geojson.features ?? []) {
     f.properties = f.properties ?? {};
-    f.properties._bucket = resolveBucket(f.properties);
+    const b = resolveBuckets(f.properties);
+    f.properties._buckets = b;
+    f.properties._bucketKey = [...b].sort().join('+');
   }
   return geojson;
 }

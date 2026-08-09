@@ -8,6 +8,8 @@
 - [x] country filter, same pattern, next to categories — flag badges (from countryCode), alphabetized, combines with the category filter as AND
 - [x] tagging — chips on the info card, tap to search. No toggle panel (open-ended, doesn't fit that pattern)
 - [x] priority/visited — Primary/Secondary/Tertiary/Visited (+ optional 1–5 star rating once visited), no Avoid. Third filter panel; set in the editor
+- [x] location search (Nominatim) with a distinct temporary pin, separate from your own places — see what's nearby anywhere, not just search your saved pins
+- [x] multi-category — up to 2 per place, checkbox picker in the editor, split-colour map pin (left/right hemispheres). Hard-coded "Research Needed" category, always available, not part of the editable taxonomy. Bulk categorize preserves a manually-set second category when re-mapping the primary
 - integrate editor into the app
   - drop down menus
 
