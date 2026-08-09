@@ -781,7 +781,29 @@ function wire() {
 
   if ('serviceWorker' in navigator) {
     if (ENABLE_SW) {
-      navigator.serviceWorker.register('sw.js').catch(() => {});
+      try {
+        const reg = await navigator.serviceWorker.register('sw.js');
+
+        // The browser only checks sw.js for changes lazily — often not on
+        // every open of an installed PWA — so force the check explicitly
+        // each time the app launches, rather than wait for it to happen on
+        // its own schedule.
+        reg.update().catch(() => {});
+
+        // Even once a new worker installs, the page that is ALREADY open
+        // keeps running the code it already loaded — installing alone does
+        // not make this page's JS/CSS current. Only a reload does. Without
+        // this listener the fix would need a manual cache-clear every time,
+        // which is what happened with the last two pushes.
+        let reloaded = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (reloaded) return;
+          reloaded = true;
+          location.reload();
+        });
+      } catch {
+        // Registration failing should never block the app from working.
+      }
     } else {
       // Self-healing: tear down any worker and caches a previous build left behind.
       const regs = await navigator.serviceWorker.getRegistrations();

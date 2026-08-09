@@ -8,7 +8,7 @@
 //   - GitHub API calls are never cached; a refresh while offline fails cleanly
 //     and the app keeps showing cached places.
 
-const VERSION = 'v2';
+const VERSION = 'v3';
 const SHELL = `shell-${VERSION}`;
 const TILES = `tiles-${VERSION}`;
 const TILE_LIMIT = 900;
@@ -85,9 +85,15 @@ self.addEventListener('fetch', e => {
   // App shell: network first, cache as fallback. Cache-first would keep serving
   // stale code after every edit, which is intolerable while the app is still
   // being built. Offline still works — the cache is written on every success.
+  //
+  // no-store matters here specifically: GitHub Pages serves these with
+  // Cache-Control: max-age=600, a layer beneath the service worker entirely.
+  // A plain fetch() still honours that and can silently return a cached
+  // response with no network round-trip at all — "network first" in name
+  // only. no-store forces past it.
   e.respondWith((async () => {
     try {
-      const res = await fetch(request);
+      const res = await fetch(request, { cache: 'no-store' });
       if (res.ok && (url.origin === location.origin || url.hostname === 'unpkg.com')) {
         const cache = await caches.open(SHELL);
         cache.put(request, res.clone());
