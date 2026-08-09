@@ -44,18 +44,34 @@
   </button>
 </div>
 
-<!-- Category filter -->
-<div class="cat-filter" id="cat-filter">
-  <button class="cat-trigger" id="cat-trigger" aria-expanded="false" aria-haspopup="true">
-    <svg class="icon" viewBox="0 0 24 24"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/></svg>
-    <span id="cat-trigger-label">Categories</span>
-  </button>
-  <div class="cat-panel" id="cat-panel" hidden>
-    <div class="cat-panel-head">
-      <span>Categories</span>
-      <button id="cat-showall" class="linklike">Show all</button>
+<!-- Category & country filters -->
+<div class="filter-bar">
+  <div class="filter-group" id="cat-filter">
+    <button class="cat-trigger" id="cat-trigger" aria-expanded="false" aria-haspopup="true">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/></svg>
+      <span id="cat-trigger-label">Categories</span>
+    </button>
+    <div class="cat-panel" id="cat-panel" hidden>
+      <div class="cat-panel-head">
+        <span>Categories</span>
+        <button id="cat-showall" class="linklike">Show all</button>
+      </div>
+      <div class="cat-rows" id="cat-rows"></div>
     </div>
-    <div class="cat-rows" id="cat-rows"></div>
+  </div>
+
+  <div class="filter-group" id="country-filter">
+    <button class="cat-trigger" id="country-trigger" aria-expanded="false" aria-haspopup="true">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM11 19.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+      <span id="country-trigger-label">Countries</span>
+    </button>
+    <div class="cat-panel" id="country-panel" hidden>
+      <div class="cat-panel-head">
+        <span>Countries</span>
+        <button id="country-showall" class="linklike">Show all</button>
+      </div>
+      <div class="cat-rows" id="country-rows"></div>
+    </div>
   </div>
 </div>
 

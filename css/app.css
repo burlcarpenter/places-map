@@ -98,11 +98,13 @@ button { font: inherit; cursor: pointer; border: 0; background: none; color: inh
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ---------- Category filter ---------- */
-.cat-filter {
+/* ---------- Category & country filters ---------- */
+.filter-bar {
   position: absolute; z-index: 5; left: 12px;
   bottom: max(14px, env(safe-area-inset-bottom));
+  display: flex; gap: 8px; flex-wrap: wrap; max-width: calc(100vw - 24px);
 }
+.filter-group { position: relative; }
 .cat-trigger {
   display: inline-flex; align-items: center; gap: 7px;
   padding: 9px 15px; border-radius: 22px; background: var(--bg);

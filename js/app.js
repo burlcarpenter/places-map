@@ -8,7 +8,7 @@ const SRC = 'places';
 const LAYER = 'places-pins';
 const LABELS = 'places-labels';
 
-let map, data = null, active = new Set();
+let map, data = null, active = new Set(), activeCountries = new Set();
 let watchId = null, meMarker = null, lastFix = null;
 const ME_SRC = 'me-accuracy';
 
@@ -204,8 +204,10 @@ function render(fc) {
   // before annotating, and rebuild the marker sprites if it differs.
   if (applyTaxonomyFrom(fc)) registerIcons();
   data = annotate(fc);
+  for (const f of data.features) f.properties._country = countryKey(f.properties);
   map.getSource(SRC).setData(data);
   buildCatPanel();
+  buildCountryPanel();
   applyFilter();
 }
 
@@ -292,8 +294,108 @@ function toggleCatPanel(open) {
   $('cat-trigger').setAttribute('aria-expanded', String(willOpen));
 }
 
+// ---------------------------------------------------------------- countries
+
+/**
+ * A country's Unicode flag is just its two-letter code re-encoded as Regional
+ * Indicator Symbols — no image assets or lookup table needed. Rendering
+ * depends on the OS/browser having flag glyphs (most do); anything else falls
+ * back to a plain globe.
+ */
+function countryFlag(code) {
+  const cc = String(code ?? '').trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(cc)) return '🌐';
+  return String.fromCodePoint(...[...cc].map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
+}
+
+/** Grouping key: the ISO code when present (canonical), else the raw country name. */
+function countryKey(p) {
+  const code = String(p.countryCode ?? '').trim().toUpperCase();
+  if (/^[A-Z]{2}$/.test(code)) return code;
+  const name = String(p.country ?? '').trim();
+  return name || 'unknown';
+}
+
+function countryLabel(p) {
+  return String(p.country ?? '').trim() || (countryKey(p) === 'unknown' ? 'Unknown' : countryKey(p));
+}
+
+function countryCounts() {
+  const m = new Map();
+  for (const f of data?.features ?? []) {
+    const key = f.properties._country;
+    if (!m.has(key)) {
+      m.set(key, { label: countryLabel(f.properties), flag: countryFlag(f.properties.countryCode), count: 0 });
+    }
+    m.get(key).count++;
+  }
+  return m;
+}
+
+function buildCountryPanel() {
+  const n = countryCounts();
+  const entries = [...n.entries()].sort((a, b) => a[1].label.localeCompare(b[1].label));
+
+  if (!activeCountries.size) for (const [key] of entries) activeCountries.add(key);
+
+  const rows = $('country-rows');
+  rows.innerHTML = '';
+  for (const [key, item] of entries) {
+    const on = activeCountries.has(key);
+    const row = document.createElement('div');
+    row.className = 'cat-row';
+    row.innerHTML = `
+      <span class="cat-badge">${item.flag}</span>
+      <span class="cat-info"><b>${esc(item.label)}</b><small>${item.count} place${item.count === 1 ? '' : 's'}</small></span>
+      <button class="cat-only" type="button">Only</button>
+      <label class="switch">
+        <input type="checkbox" ${on ? 'checked' : ''} aria-label="Show ${esc(item.label)}">
+        <span class="slider"></span>
+      </label>`;
+    row.querySelector('.cat-only').addEventListener('click', () => onlyCountry(key));
+    row.querySelector('input').addEventListener('change', e => {
+      e.target.checked ? activeCountries.add(key) : activeCountries.delete(key);
+      applyFilter();
+      updateCountryTrigger();
+    });
+    rows.appendChild(row);
+  }
+  updateCountryTrigger();
+}
+
+function onlyCountry(key) {
+  activeCountries = new Set([key]);
+  buildCountryPanel();
+  applyFilter();
+}
+
+function showAllCountries() {
+  activeCountries = new Set(countryCounts().keys());
+  buildCountryPanel();
+  applyFilter();
+}
+
+function updateCountryTrigger() {
+  const total = countryCounts().size;
+  const on = activeCountries.size;
+  const el = $('country-trigger-label');
+  el.innerHTML = on === total
+    ? `Countries <span class="n">${total}</span>`
+    : `Countries <span class="n filtered">${on}/${total}</span>`;
+}
+
+function toggleCountryPanel(open) {
+  const panel = $('country-panel');
+  const willOpen = open ?? panel.hidden;
+  panel.hidden = !willOpen;
+  $('country-trigger').setAttribute('aria-expanded', String(willOpen));
+}
+
 function applyFilter() {
-  const f = ['in', ['get', '_bucket'], ['literal', [...active]]];
+  const f = ['all',
+    ['in', ['get', '_bucket'], ['literal', [...active]]],
+    ['in', ['get', '_country'], ['literal', [...activeCountries]]]
+  ];
   map.setFilter(LAYER, f);
   map.setFilter(LABELS, f);
 }
@@ -364,6 +466,7 @@ function hoursHtml(raw) {
 
 function openSheet(feature) {
   toggleCatPanel(false);
+  toggleCountryPanel(false);
   const p = feature.properties ?? {};
   const [lng, lat] = feature.geometry.coordinates;
   const b = bucketById(p._bucket);
@@ -617,18 +720,26 @@ function wire() {
 
   document.addEventListener('click', e => {
     if (!e.target.closest('.search-wrap')) $('results').hidden = true;
-    if (!e.target.closest('.cat-filter')) toggleCatPanel(false);
+    // Per-container checks, not a shared class — a click on the country
+    // trigger is "outside" #cat-filter (closing it) but "inside" #country-filter
+    // (leaving it alone, since that click is what opens it). Net effect:
+    // opening one panel closes the other for free.
+    if (!e.target.closest('#cat-filter')) toggleCatPanel(false);
+    if (!e.target.closest('#country-filter')) toggleCountryPanel(false);
   });
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
     $('sheet').hidden = true; $('settings').hidden = true; $('results').hidden = true;
     toggleCatPanel(false);
+    toggleCountryPanel(false);
   });
 
   $('btn-locate').addEventListener('click', toggleLocate);
   $('btn-satellite').addEventListener('click', toggleSatellite);
   $('cat-trigger').addEventListener('click', () => toggleCatPanel());
   $('cat-showall').addEventListener('click', showAllCategories);
+  $('country-trigger').addEventListener('click', () => toggleCountryPanel());
+  $('country-showall').addEventListener('click', showAllCountries);
 }
 
 // ---------------------------------------------------------------- boot
