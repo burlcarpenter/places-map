@@ -493,6 +493,7 @@ function openSheet(feature) {
     ${cleanAddress(p) ? `<p class="addr">${esc(cleanAddress(p))}</p>` : ''}
     ${p.user?.note ? `<div class="notebox user"><span class="lbl">My note</span>${esc(p.user.note)}</div>` : ''}
     ${p.note ? `<div class="notebox"><span class="lbl">Note</span>${esc(p.note)}</div>` : ''}
+    ${tagsHtml(p)}
     ${hoursHtml(p.hours)}
     ${categoryLabel(p.category) ? `<p class="raw-cat">${esc(categoryLabel(p.category))}</p>` : ''}
     <div class="actions">
@@ -505,8 +506,25 @@ function openSheet(feature) {
       ${safeTel(phone(p)) ? `<a class="secondary" href="tel:${esc(safeTel(phone(p)))}">Call</a>` : ''}
     </div>`;
 
+  for (const el of $('sheet-body').querySelectorAll('.tag-chip')) {
+    el.addEventListener('click', () => {
+      $('sheet').hidden = true;
+      $('search').value = el.dataset.tag;
+      search(el.dataset.tag);
+    });
+  }
+
   $('sheet').hidden = false;
   map.easeTo({ center: [lng, lat], offset: [0, -110], duration: 420 });
+}
+
+/** Tags are free-form and open-ended, so no toggle panel — tap one to search by it. */
+function tagsHtml(p) {
+  const tags = p.user?.tags ?? [];
+  if (!tags.length) return '';
+  return `<div class="tags-row">${tags.map(t =>
+    `<button class="tag-chip" type="button" data-tag="${esc(t)}">${esc(t)}</button>`
+  ).join('')}</div>`;
 }
 
 // ---------------------------------------------------------------- my location
@@ -611,7 +629,8 @@ function search(q) {
 
   const hits = (data?.features ?? []).filter(f => {
     const p = f.properties;
-    return [p.name, p.address, p.city, p.district, categoryLabel(p.category), p.note, p.user?.note]
+    return [p.name, p.address, p.city, p.district, categoryLabel(p.category), p.note, p.user?.note,
+             ...(p.user?.tags ?? [])]
       .some(v => String(v ?? '').toLowerCase().includes(term));
   }).slice(0, 40);
 

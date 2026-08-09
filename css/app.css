@@ -187,6 +187,12 @@ button { font: inherit; cursor: pointer; border: 0; background: none; color: inh
 .notebox.user { border-left: 3px solid var(--accent); }
 .notebox .lbl { display: block; font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 3px; }
 .raw-cat { font-size: .76rem; color: var(--muted); margin: 0 0 12px; }
+.tags-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.tag-chip {
+  padding: 5px 12px; border-radius: 14px; background: var(--field);
+  border: 1px solid var(--border); font-size: .78rem; font-weight: 500; color: var(--fg);
+}
+.tag-chip:hover, .tag-chip:active { background: var(--accent); border-color: var(--accent); color: #fff; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
 .actions a, .actions button {
   display: inline-flex; align-items: center; gap: 6px; text-decoration: none;
