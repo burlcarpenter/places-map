@@ -13,6 +13,9 @@ secrets*
 *.geojson
 places-*.json
 
+# Personal reference doc — stays local, not part of the app
+FIELD-MANUAL.md
+
 # Local scratch
 *.log
 .DS_Store
