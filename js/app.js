@@ -205,7 +205,7 @@ function render(fc) {
   if (applyTaxonomyFrom(fc)) registerIcons();
   data = annotate(fc);
   map.getSource(SRC).setData(data);
-  buildChips();
+  buildCatPanel();
   applyFilter();
 }
 
@@ -229,30 +229,67 @@ function counts() {
   return m;
 }
 
-function buildChips() {
+function buildCatPanel() {
   const n = counts();
-  const box = $('filters');
-  box.innerHTML = '';
+  const present = buckets().filter(b => n.get(b.id));
 
   // First build: everything visible. Rebuilds keep the user's current selection.
-  if (!active.size) for (const b of buckets()) if (n.get(b.id)) active.add(b.id);
+  if (!active.size) for (const b of present) active.add(b.id);
 
-  for (const b of buckets()) {
-    const c = n.get(b.id) ?? 0;
-    if (!c) continue;
+  const rows = $('cat-rows');
+  rows.innerHTML = '';
+  for (const b of present) {
+    const c = n.get(b.id);
     const on = active.has(b.id);
-    const el = document.createElement('button');
-    el.className = 'chip' + (on ? ' on' : '');
-    el.style.setProperty('--chip', b.color);
-    el.setAttribute('aria-pressed', String(on));
-    el.innerHTML = `<span>${b.emoji}</span><span>${esc(b.label)}</span><span class="n">${c}</span>`;
-    el.addEventListener('click', () => {
-      active.has(b.id) ? active.delete(b.id) : active.add(b.id);
-      buildChips();
+    const row = document.createElement('div');
+    row.className = 'cat-row';
+    row.style.setProperty('--rc', b.color);
+    row.innerHTML = `
+      <span class="cat-badge">${b.emoji}</span>
+      <span class="cat-info"><b>${esc(b.label)}</b><small>${c} place${c === 1 ? '' : 's'}</small></span>
+      <button class="cat-only" type="button">Only</button>
+      <label class="switch">
+        <input type="checkbox" ${on ? 'checked' : ''} aria-label="Show ${esc(b.label)}">
+        <span class="slider"></span>
+      </label>`;
+    row.querySelector('.cat-only').addEventListener('click', () => onlyCategory(b.id));
+    row.querySelector('input').addEventListener('change', e => {
+      e.target.checked ? active.add(b.id) : active.delete(b.id);
       applyFilter();
+      updateCatTrigger();
     });
-    box.appendChild(el);
+    rows.appendChild(row);
   }
+
+  updateCatTrigger();
+}
+
+function onlyCategory(id) {
+  active = new Set([id]);
+  buildCatPanel();
+  applyFilter();
+}
+
+function showAllCategories() {
+  active = new Set([...counts().keys()]);
+  buildCatPanel();
+  applyFilter();
+}
+
+function updateCatTrigger() {
+  const total = [...counts().keys()].length;
+  const on = active.size;
+  const el = $('cat-trigger-label');
+  el.innerHTML = on === total
+    ? `Categories <span class="n">${total}</span>`
+    : `Categories <span class="n filtered">${on}/${total}</span>`;
+}
+
+function toggleCatPanel(open) {
+  const panel = $('cat-panel');
+  const willOpen = open ?? panel.hidden;
+  panel.hidden = !willOpen;
+  $('cat-trigger').setAttribute('aria-expanded', String(willOpen));
 }
 
 function applyFilter() {
@@ -326,6 +363,7 @@ function hoursHtml(raw) {
 }
 
 function openSheet(feature) {
+  toggleCatPanel(false);
   const p = feature.properties ?? {};
   const [lng, lat] = feature.geometry.coordinates;
   const b = bucketById(p._bucket);
@@ -579,14 +617,18 @@ function wire() {
 
   document.addEventListener('click', e => {
     if (!e.target.closest('.search-wrap')) $('results').hidden = true;
+    if (!e.target.closest('.cat-filter')) toggleCatPanel(false);
   });
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
     $('sheet').hidden = true; $('settings').hidden = true; $('results').hidden = true;
+    toggleCatPanel(false);
   });
 
   $('btn-locate').addEventListener('click', toggleLocate);
   $('btn-satellite').addEventListener('click', toggleSatellite);
+  $('cat-trigger').addEventListener('click', () => toggleCatPanel());
+  $('cat-showall').addEventListener('click', showAllCategories);
 }
 
 // ---------------------------------------------------------------- boot

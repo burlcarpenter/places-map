@@ -44,8 +44,20 @@
   </button>
 </div>
 
-<!-- Category filter chips -->
-<div class="filters" id="filters"></div>
+<!-- Category filter -->
+<div class="cat-filter" id="cat-filter">
+  <button class="cat-trigger" id="cat-trigger" aria-expanded="false" aria-haspopup="true">
+    <svg class="icon" viewBox="0 0 24 24"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/></svg>
+    <span id="cat-trigger-label">Categories</span>
+  </button>
+  <div class="cat-panel" id="cat-panel" hidden>
+    <div class="cat-panel-head">
+      <span>Categories</span>
+      <button id="cat-showall" class="linklike">Show all</button>
+    </div>
+    <div class="cat-rows" id="cat-rows"></div>
+  </div>
+</div>
 
 <!-- Place info sheet -->
 <div class="sheet" id="sheet" hidden>
