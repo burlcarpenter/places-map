@@ -8,7 +8,7 @@ const SRC = 'places';
 const LAYER = 'places-pins';
 const LABELS = 'places-labels';
 
-let map, data = null, active = new Set(), activeCountries = new Set();
+let map, data = null, active = new Set(), activeCountries = new Set(), activeStatus = new Set();
 let watchId = null, meMarker = null, lastFix = null;
 const ME_SRC = 'me-accuracy';
 
@@ -204,10 +204,14 @@ function render(fc) {
   // before annotating, and rebuild the marker sprites if it differs.
   if (applyTaxonomyFrom(fc)) registerIcons();
   data = annotate(fc);
-  for (const f of data.features) f.properties._country = countryKey(f.properties);
+  for (const f of data.features) {
+    f.properties._country = countryKey(f.properties);
+    f.properties._status = statusOf(f.properties);
+  }
   map.getSource(SRC).setData(data);
   buildCatPanel();
   buildCountryPanel();
+  buildStatusPanel();
   applyFilter();
 }
 
@@ -391,10 +395,99 @@ function toggleCountryPanel(open) {
   $('country-trigger').setAttribute('aria-expanded', String(willOpen));
 }
 
+// ---------------------------------------------------------------- priority
+
+/**
+ * A fixed small set, unlike categories/countries — not user-editable, no
+ * taxonomy file. "Visited" supersedes a priority tier once you have actually
+ * been; the tier only matters for planning what to see next. Colour carries
+ * the medal-tier association (gold/silver/bronze) without needing emoji.
+ */
+const STATUS_TIERS = [
+  { id: 'primary',   label: 'Primary',     color: '#c99a2e' },
+  { id: 'secondary', label: 'Secondary',   color: '#8a94a3' },
+  { id: 'tertiary',  label: 'Tertiary',    color: '#a9663c' },
+  { id: 'visited',   label: 'Visited',     color: '#2f8f5b' },
+  { id: 'unset',     label: 'Not planned', color: '#9aa0a6' }
+];
+const statusTier = id => STATUS_TIERS.find(s => s.id === id) ?? STATUS_TIERS.at(-1);
+const statusOf = p => p.user?.status || 'unset';
+
+function statusCounts() {
+  const m = new Map();
+  for (const f of data?.features ?? []) {
+    const key = f.properties._status;
+    m.set(key, (m.get(key) ?? 0) + 1);
+  }
+  return m;
+}
+
+function buildStatusPanel() {
+  const n = statusCounts();
+  const present = STATUS_TIERS.filter(s => n.get(s.id));
+
+  if (!activeStatus.size) for (const s of present) activeStatus.add(s.id);
+
+  const rows = $('status-rows');
+  rows.innerHTML = '';
+  for (const s of present) {
+    const c = n.get(s.id);
+    const on = activeStatus.has(s.id);
+    const row = document.createElement('div');
+    row.className = 'cat-row';
+    row.style.setProperty('--rc', s.color);
+    row.innerHTML = `
+      <span class="cat-badge dot-badge"></span>
+      <span class="cat-info"><b>${esc(s.label)}</b><small>${c} place${c === 1 ? '' : 's'}</small></span>
+      <button class="cat-only" type="button">Only</button>
+      <label class="switch">
+        <input type="checkbox" ${on ? 'checked' : ''} aria-label="Show ${esc(s.label)}">
+        <span class="slider"></span>
+      </label>`;
+    row.querySelector('.cat-only').addEventListener('click', () => onlyStatus(s.id));
+    row.querySelector('input').addEventListener('change', e => {
+      e.target.checked ? activeStatus.add(s.id) : activeStatus.delete(s.id);
+      applyFilter();
+      updateStatusTrigger();
+    });
+    rows.appendChild(row);
+  }
+  updateStatusTrigger();
+}
+
+function onlyStatus(id) {
+  activeStatus = new Set([id]);
+  buildStatusPanel();
+  applyFilter();
+}
+
+function showAllStatus() {
+  activeStatus = new Set(statusCounts().keys());
+  buildStatusPanel();
+  applyFilter();
+}
+
+function updateStatusTrigger() {
+  const total = statusCounts().size;
+  const on = activeStatus.size;
+  const el = $('status-trigger-label');
+  el.innerHTML = on === total
+    ? `Priority <span class="n">${total}</span>`
+    : `Priority <span class="n filtered">${on}/${total}</span>`;
+}
+
+function toggleStatusPanel(open) {
+  const panel = $('status-panel');
+  const willOpen = open ?? panel.hidden;
+  panel.hidden = !willOpen;
+  $('status-trigger').setAttribute('aria-expanded', String(willOpen));
+}
+
 function applyFilter() {
   const f = ['all',
     ['in', ['get', '_bucket'], ['literal', [...active]]],
-    ['in', ['get', '_country'], ['literal', [...activeCountries]]]
+    ['in', ['get', '_country'], ['literal', [...activeCountries]]],
+    ['in', ['get', '_status'], ['literal', [...activeStatus]]]
   ];
   map.setFilter(LAYER, f);
   map.setFilter(LABELS, f);
@@ -467,6 +560,7 @@ function hoursHtml(raw) {
 function openSheet(feature) {
   toggleCatPanel(false);
   toggleCountryPanel(false);
+  toggleStatusPanel(false);
   const p = feature.properties ?? {};
   const [lng, lat] = feature.geometry.coordinates;
   const b = bucketById(p._bucket);
@@ -488,6 +582,7 @@ function openSheet(feature) {
       <span class="emoji">${b.emoji}</span><span>${esc(b.label)}</span>
       ${locality ? `<span>·</span><span>${esc(locality)}</span>` : ''}
     </div>
+    ${statusHtml(p)}
     ${p.rating ? `<div class="rating"><span class="stars">${stars(p.rating)}</span>
       <span>${esc(p.rating)}${p.reviewCount ? ` · ${esc(p.reviewCount)} reviews` : ''}</span></div>` : ''}
     ${cleanAddress(p) ? `<p class="addr">${esc(cleanAddress(p))}</p>` : ''}
@@ -516,6 +611,18 @@ function openSheet(feature) {
 
   $('sheet').hidden = false;
   map.easeTo({ center: [lng, lat], offset: [0, -110], duration: 420 });
+}
+
+function statusHtml(p) {
+  const st = p.user?.status;
+  if (!st) return '';
+  const tier = statusTier(st);
+  if (st === 'visited') {
+    const r = Number(p.user?.rating) || 0;
+    return `<div class="status-pill" style="--sc:${tier.color}"><span class="dot"></span>Visited${
+      r ? `<span class="mystars">${stars(r)}</span>` : ''}</div>`;
+  }
+  return `<div class="status-pill" style="--sc:${tier.color}"><span class="dot"></span>${esc(tier.label)} priority</div>`;
 }
 
 /** Tags are free-form and open-ended, so no toggle panel — tap one to search by it. */
@@ -745,12 +852,14 @@ function wire() {
     // opening one panel closes the other for free.
     if (!e.target.closest('#cat-filter')) toggleCatPanel(false);
     if (!e.target.closest('#country-filter')) toggleCountryPanel(false);
+    if (!e.target.closest('#status-filter')) toggleStatusPanel(false);
   });
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
     $('sheet').hidden = true; $('settings').hidden = true; $('results').hidden = true;
     toggleCatPanel(false);
     toggleCountryPanel(false);
+    toggleStatusPanel(false);
   });
 
   $('btn-locate').addEventListener('click', toggleLocate);
@@ -759,6 +868,8 @@ function wire() {
   $('cat-showall').addEventListener('click', showAllCategories);
   $('country-trigger').addEventListener('click', () => toggleCountryPanel());
   $('country-showall').addEventListener('click', showAllCountries);
+  $('status-trigger').addEventListener('click', () => toggleStatusPanel());
+  $('status-showall').addEventListener('click', showAllStatus);
 }
 
 // ---------------------------------------------------------------- boot

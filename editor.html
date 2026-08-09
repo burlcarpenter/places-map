@@ -141,6 +141,9 @@
   .checkline { display:flex; align-items:center; gap:9px; font-size:13px; padding:10px 12px;
                background:var(--surface-2); border-radius:var(--r); }
   .checkline input { width:auto; accent-color:var(--accent); }
+  .starpick { display:flex; gap:2px; }
+  .starpick .star { font-size:22px; line-height:1; color:#e0a33a; padding:2px 3px; border-radius:5px; }
+  .starpick .star:hover { background:var(--surface-2); }
 
   /* ---- category manager ---- */
   .catrow {
@@ -356,6 +359,17 @@ function materialiseCategories() {
   return state.data.categories;
 }
 const bucketOf = id => buckets().find(b => b.id === id) || buckets().at(-1);
+
+/**
+ * Fixed small set, unlike categories — not user-editable, no taxonomy file.
+ * Mirrors STATUS_TIERS in js/app.js; keep the two in sync if this ever changes.
+ */
+const STATUS_TIERS = [
+  { id:'primary',   label:'Primary',   color:'#c99a2e' },
+  { id:'secondary', label:'Secondary', color:'#8a94a3' },
+  { id:'tertiary',  label:'Tertiary',  color:'#a9663c' },
+  { id:'visited',   label:'Visited',   color:'#2f8f5b' }
+];
 
 /* ------------------------------------------------------------------- state */
 const state = { handle:null, name:null, data:null, sel:-1, dirty:false };
@@ -675,6 +689,23 @@ function renderEdit() {
       </div>
     </div>
 
+    <div class="grid2">
+      <div class="field">
+        <label for="e-status">Priority / visited</label>
+        <select id="e-status">
+          <option value="">— none set —</option>
+          ${STATUS_TIERS.map(s => `<option value="${s.id}"${u.status === s.id ? ' selected' : ''}>${esc(s.label)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field" id="e-rating-field"${u.status === 'visited' ? '' : ' hidden'}>
+        <label>My rating</label>
+        <div class="starpick" id="e-starpick">
+          ${[1, 2, 3, 4, 5].map(n => `<button type="button" class="star" data-n="${n}" aria-label="${n} star${n > 1 ? 's' : ''}">${n <= (u.rating || 0) ? '★' : '☆'}</button>`).join('')}
+        </div>
+        <div class="hint">Click a filled star again to clear it.</div>
+      </div>
+    </div>
+
     <div class="field">
       <label for="e-note">My note</label>
       <textarea id="e-note" placeholder="Anything you want to remember about this place">${esc(u.note || '')}</textarea>
@@ -754,6 +785,21 @@ function wireEdit(f) {
     markDirty(); renderTags(); renderList();
   });
   $('e-managecats').addEventListener('click', openCats);
+
+  $('e-status').addEventListener('change', e => {
+    const v = e.target.value;
+    if (v) userOf(f).status = v; else delete userOf(f).status;
+    $('e-rating-field').hidden = v !== 'visited';
+    markDirty(); renderList();
+  });
+  for (const btn of $('e-starpick').querySelectorAll('.star')) {
+    btn.addEventListener('click', () => {
+      const n = +btn.dataset.n;
+      const u = userOf(f);
+      if (u.rating === n) delete u.rating; else u.rating = n;   // re-click clears it
+      markDirty(); renderEdit();
+    });
+  }
 
   $('e-fetch')?.addEventListener('click', async e => {
     const btn = e.target;
