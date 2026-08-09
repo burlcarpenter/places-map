@@ -731,12 +731,24 @@ function toggleLocate() {
 
 // ---------------------------------------------------------------- search
 
+/**
+ * Live, local, fires on every keystroke — searches only your own saved
+ * places. Free, instant, no network call. Deliberately separate from the
+ * Nominatim location lookup below, which fires only on Enter: Nominatim's
+ * own usage policy explicitly prohibits autocomplete-style per-keystroke
+ * queries against the public API, calling it out as bulk geocoding.
+ */
 function search(q) {
   const box = $('results');
+  const placesBox = $('results-places');
   const term = q.trim().toLowerCase();
   $('search-clear').hidden = !term;
 
-  if (!term) { box.hidden = true; return; }
+  // A location result from a previous, now-stale query should not linger
+  // once the user starts typing something new.
+  $('results-locations').innerHTML = '';
+
+  if (!term) { box.hidden = true; placesBox.innerHTML = ''; return; }
 
   const hits = (data?.features ?? []).filter(f => {
     const p = f.properties;
@@ -746,9 +758,12 @@ function search(q) {
   }).slice(0, 40);
 
   box.hidden = false;
-  if (!hits.length) { box.innerHTML = '<p class="empty">No places match that.</p>'; return; }
+  if (!hits.length) {
+    placesBox.innerHTML = '<p class="empty">No saved places match that. Press Enter to search it as a location.</p>';
+    return;
+  }
 
-  box.innerHTML = '';
+  placesBox.innerHTML = '';
   for (const f of hits) {
     const p = f.properties, b = bucketById(p._bucket);
     const btn = document.createElement('button');
@@ -762,8 +777,88 @@ function search(q) {
       map.flyTo({ center: f.geometry.coordinates, zoom: 16, offset: [0, -110] });
       openSheet(f);
     });
+    placesBox.appendChild(btn);
+  }
+}
+
+// ---------------------------------------------------------- location search
+
+let searchMarker = null;
+let geocoding = false;
+
+/**
+ * Nominatim (OSM's free geocoding). Fires only on an explicit Enter press —
+ * never per-keystroke, per their published usage policy, which classes that
+ * pattern as unauthorised bulk geocoding regardless of volume. A browser
+ * fetch() automatically sends a Referer header identifying this app, which
+ * is what their policy asks for in lieu of a custom header browsers won't
+ * let a page set anyway.
+ */
+async function geocodeAndShow(query) {
+  const term = query.trim();
+  if (!term || geocoding) return;
+  geocoding = true;
+
+  const box = $('results-locations');
+  box.innerHTML = '<p class="empty">Searching…</p>';
+  $('results').hidden = false;
+
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(term)}&limit=5`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Nominatim returned ${res.status}`);
+    const hits = await res.json();
+    renderLocationResults(hits);
+  } catch (e) {
+    box.innerHTML = `<p class="empty">Location search failed: ${esc(e.message)}</p>`;
+  } finally {
+    geocoding = false;
+  }
+}
+
+function renderLocationResults(hits) {
+  const box = $('results-locations');
+  if (!hits.length) { box.innerHTML = '<p class="empty">No location found for that.</p>'; return; }
+
+  box.innerHTML = '<div class="results-label">Locations</div>';
+  for (const hit of hits) {
+    const btn = document.createElement('button');
+    btn.className = 'result';
+    btn.innerHTML = `<span class="emoji">📍</span>
+      <span><b>${esc(hit.display_name.split(',')[0])}</b><span>${esc(hit.display_name)}</span></span>`;
+    btn.addEventListener('click', () => {
+      $('results').hidden = true;
+      $('search').value = '';
+      $('search-clear').hidden = true;
+      dropSearchPin(+hit.lat, +hit.lon, hit.display_name);
+    });
     box.appendChild(btn);
   }
+}
+
+/**
+ * A distinct teardrop marker for "a place I looked up," never confusable
+ * with a category pin (white disc + colour ring) or the GPS dot (solid
+ * pulsing blue circle). Only one at a time — a fresh search replaces it.
+ */
+function dropSearchPin(lat, lng, label) {
+  searchMarker?.remove();
+
+  const el = document.createElement('div');
+  el.className = 'search-pin';
+  el.innerHTML = `<svg viewBox="0 0 24 34" width="30" height="42">
+    <path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 22 12 22s12-13 12-22C24 5.4 18.6 0 12 0z"
+          fill="#d6249f" stroke="#fff" stroke-width="1.5"/>
+    <circle cx="12" cy="12" r="4.5" fill="#fff"/>
+  </svg>`;
+
+  searchMarker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+    .setLngLat([lng, lat])
+    .setPopup(new maplibregl.Popup({ offset: 28, closeButton: true }).setText(label))
+    .addTo(map);
+  searchMarker.togglePopup();
+
+  map.flyTo({ center: [lng, lat], zoom: 13, offset: [0, -60] });
 }
 
 // ---------------------------------------------------------------- sync
@@ -846,6 +941,9 @@ function wire() {
 
   $('sheet-close').addEventListener('click', () => { $('sheet').hidden = true; });
   $('search').addEventListener('input', e => search(e.target.value));
+  $('search').addEventListener('keydown', e => {
+    if (e.key === 'Enter') geocodeAndShow(e.target.value);
+  });
   $('search-clear').addEventListener('click', () => { $('search').value = ''; search(''); $('search').focus(); });
 
   document.addEventListener('click', e => {

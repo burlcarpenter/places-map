@@ -66,6 +66,16 @@ button { font: inherit; cursor: pointer; border: 0; background: none; color: inh
 .result b { display: block; font-weight: 600; font-size: .93rem; }
 .result span { color: var(--muted); font-size: .8rem; }
 .empty { padding: 14px; color: var(--muted); font-size: .88rem; }
+.results-label {
+  padding: 8px 14px 4px; font-size: .72rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--muted); border-top: 1px solid var(--border);
+}
+.results-label:first-child { border-top: 0; }
+
+/* Search-location pin — deliberately a teardrop, not a circle, so it never
+   reads as one of the category pins or the GPS dot at a glance. */
+.search-pin { filter: drop-shadow(0 2px 4px rgba(0,0,0,.4)); }
+.maplibregl-popup-content { font: 13px/1.4 -apple-system, "Segoe UI", sans-serif; padding: 9px 12px; }
 
 /* ---------- Controls ---------- */
 .controls {
