@@ -1,5 +1,5 @@
 import { loadTaxonomy, buckets, bucketById, annotate, categoryLabel, parseMaybeJson,
-         applyTaxonomyFrom } from './categories.js';
+         applyTaxonomyFrom, RESEARCH_NEEDED } from './categories.js';
 import { getPlaces, setPlaces, getSettings, saveSettings } from './store.js';
 import { fetchPlaces, diff, sanitizeToken } from './sync.js';
 
@@ -210,7 +210,15 @@ function registerPairIcons() {
   for (const key of keys) {
     const id = `pin-${key}`;
     if (map.hasImage(id)) map.removeImage(id);
-    const [idLeft, idRight] = key.split('+');
+
+    // Research Needed never owns the icon — glancing at the map should show
+    // what a place IS first; the colour split is the secondary "needs
+    // research" signal, not the primary one. Two real categories keep the
+    // plain alphabetical left/right (no reason to prefer either).
+    const ids = key.split('+');
+    const rnAt = ids.indexOf(RESEARCH_NEEDED.id);
+    const [idLeft, idRight] = rnAt === -1 ? ids : [ids[1 - rnAt], ids[rnAt]];
+
     map.addImage(id, makeSplitPin(bucketById(idLeft), bucketById(idRight)), { pixelRatio: 2 });
   }
 }
