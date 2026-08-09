@@ -284,11 +284,13 @@
 <div class="modal" id="m-import" hidden>
   <div class="modal-card">
     <h2>Import and append</h2>
-    <p class="sub">Paste a GeoJSON FeatureCollection, or choose a file. Existing places are never
-      overwritten — anything already present (matched on <code>placeId</code>) is skipped, and only
-      genuinely new features are appended.</p>
+    <p class="sub">Paste a GeoJSON FeatureCollection, or choose one or more files — select many at once
+      for a batch import. Existing places are never overwritten — anything already present (matched on
+      <code>placeId</code>) is skipped, and only genuinely new features are appended. Files in a batch
+      are processed immediately, one after another; duplicates between them are caught too, not just
+      duplicates against what's already open.</p>
     <div class="field">
-      <input type="file" id="imp-file" accept=".geojson,.json,application/geo+json,application/json">
+      <input type="file" id="imp-file" accept=".geojson,.json,application/geo+json,application/json" multiple>
     </div>
     <div class="field">
       <textarea id="imp-text" placeholder='{"type":"FeatureCollection","features":[…]}' style="min-height:180px"></textarea>
@@ -1285,9 +1287,63 @@ $('btn-url').addEventListener('click', () => {
 });
 $('imp-go').addEventListener('click', doImport);
 $('imp-file').addEventListener('change', async e => {
-  const f = e.target.files[0];
-  if (f) { $('imp-text').value = await f.text(); report('imp-report','ok','File read',[`${f.name} loaded into the box below — press Append.`]); }
+  const files = [...e.target.files];
+  e.target.value = '';   // clear now so picking the same file(s) again still fires 'change'
+  if (!files.length) return;
+
+  if (files.length === 1) {
+    // One file: load it for review, same as before — press Append to commit.
+    $('imp-text').value = await files[0].text();
+    report('imp-report', 'ok', 'File read', [`${files[0].name} loaded into the box below — press Append.`]);
+    return;
+  }
+  // Several files at once: nothing sensible to "review" in a single text box —
+  // 25 JSON documents back to back is not itself valid JSON — so process each
+  // one directly instead of routing through the textarea.
+  await importManyFiles(files);
 });
+
+async function importManyFiles(files) {
+  $('imp-go').disabled = true;
+  report('imp-report', 'ok', `Processing ${files.length} files…`, []);
+
+  let totalAdded = 0, totalSkipped = 0, totalBad = 0, failed = 0;
+  const lines = [];
+
+  for (const file of files) {
+    let data;
+    try {
+      data = JSON.parse(await file.text());
+    } catch (e) {
+      lines.push(`✕ ${file.name} — could not read: ${e.message}`);
+      failed++;
+      continue;
+    }
+    const { features } = normalizeToFeatures(data);
+    if (!features) {
+      lines.push(`✕ ${file.name} — unrecognised shape`);
+      failed++;
+      continue;
+    }
+    const r = appendFeatures(features);
+    totalAdded += r.added; totalSkipped += r.skipped; totalBad += r.bad;
+    lines.push(`${file.name} — +${r.added}` +
+      (r.skipped ? `, ${r.skipped} already present` : '') +
+      (r.bad ? `, ${r.bad} malformed` : ''));
+  }
+
+  markDirty(); renderList();
+  $('imp-go').disabled = false;
+
+  report('imp-report', failed ? 'err' : 'ok',
+    `${files.length} files processed — ${totalAdded} appended in total`,
+    [
+      `${totalSkipped} already present across the batch, skipped`,
+      totalBad ? `${totalBad} malformed features ignored` : null,
+      failed ? `${failed} file(s) could not be read — see below` : null,
+      ...lines
+    ].filter(Boolean));
+}
 $('url-parse').addEventListener('click', previewUrl);
 
 function openCats() {

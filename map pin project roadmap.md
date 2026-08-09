@@ -12,4 +12,4 @@
   - drop down menus
 
 - [x] google maps API setup
-- cloudflare shift
+- [~] cloudflare shift — considered and decided against (2026-08-09). Data's already private (repo + scoped token); Cloudflare Access would only additionally hide the empty app shell from strangers, at the cost of a second login layer and untested friction with an installed PWA. Not worth it for a single-user app. Revisit only if the goal changes to "hide that this project exists," not "keep data private."
