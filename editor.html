@@ -256,9 +256,10 @@
     <h2>Bulk categorize</h2>
     <p class="sub">
       Every distinct Google category currently in your data, A–Z. Select several, pick where
-      they should go, and apply once. The mapping is saved with the file, so it automatically
-      covers new places in future imports too — it never touches a place you've set by hand here
-      in the editor, unless you explicitly re-apply below.
+      they should go — up to 2, same as a place's own category cap — and apply once. The
+      mapping is saved with the file, so it automatically covers new places in future imports
+      too — it never touches a place you've set by hand here in the editor, unless you
+      explicitly re-apply below.
     </p>
     <input id="bulk-search" type="search" placeholder="Search categories…" autocomplete="off"
            spellcheck="false" style="margin-bottom:8px">
@@ -269,11 +270,11 @@
         <button type="button" class="linklike" id="bulk-clearsel">Clear selection</button>
       </span>
     </div>
-    <div class="row" style="margin-bottom:12px; align-items:center">
-      <select id="bulk-target" style="flex:1"></select>
-      <button class="btn primary" id="bulk-apply" disabled>Apply to selected</button>
-    </div>
-    <div id="bulk-rows" style="max-height:48vh; overflow-y:auto"></div>
+    <div id="bulk-rows" style="max-height:34vh; overflow-y:auto; margin-bottom:12px"></div>
+
+    <label style="display:block; font-size:12px; font-weight:700; margin-bottom:6px">Map to <span class="hint" style="font-weight:400">— up to 2</span></label>
+    <div id="bulk-targetpick" style="max-height:140px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--r); padding:2px; margin-bottom:12px"></div>
+    <button class="btn primary" id="bulk-apply" disabled style="width:100%">Apply to selected</button>
     <div id="bulk-report"></div>
     <div class="modal-actions" style="justify-content:space-between">
       <button class="btn danger" id="bulk-reapply">Re-apply all rules now</button>
@@ -1163,6 +1164,19 @@ function materialiseCategoryRules() {
   return state.data.categoryRules;
 }
 
+/**
+ * A rule's target(s), normalised to an array regardless of how it's stored.
+ * Rules saved before multi-category existed are a single string (163 of
+ * them, in the real data at time of writing) — read those as a 1-item list;
+ * new rules are written as an array of up to 2 from the start.
+ */
+function ruleTargets(rules, token) {
+  const v = rules[token];
+  if (Array.isArray(v)) return v.filter(Boolean).slice(0, 2);
+  if (v) return [v];
+  return [];
+}
+
 /** Every distinct raw Google category token across all current places, A–Z. */
 function collectRawCategoryTokens() {
   const counts = new Map();   // lowercase token -> { display, count }
@@ -1204,12 +1218,19 @@ function applyCategoryRules(features, { force = false } = {}) {
     if (!force && hasExplicit) continue;
 
     for (const t of categoryTokens(f.properties.category)) {
-      const target = rules[t.toLowerCase()];
-      if (!target) continue;
-      // A rule sets the PRIMARY slot only — a manually-added second category
-      // (Research Needed, most often) survives rather than being wiped.
-      const secondary = effBuckets(f)[1];
-      userOf(f).buckets = (secondary && secondary !== target) ? [target, secondary] : [target];
+      const targets = ruleTargets(rules, t.toLowerCase());
+      if (!targets.length) continue;
+
+      if (targets.length >= 2) {
+        // Rule specifies both slots explicitly — use exactly what it says.
+        userOf(f).buckets = targets;
+      } else {
+        // Rule specifies only one target — preserve an existing DIFFERENT
+        // second category (Research Needed, most often) rather than
+        // wiping it, same as a single-target rule always has.
+        const secondary = effBuckets(f)[1];
+        userOf(f).buckets = (secondary && secondary !== targets[0]) ? [targets[0], secondary] : targets;
+      }
       delete userOf(f).bucket;
       changed++;
       break;
@@ -1252,12 +1273,12 @@ function renderBulk() {
   for (const r of rows) {
     const label = document.createElement('label');
     label.className = 'bulkrow';
-    const mappedTo = rules[r.key] ? bucketOf(rules[r.key]) : null;
+    const mappedTo = ruleTargets(rules, r.key).map(bucketOf);
     label.innerHTML = `
       <input type="checkbox" ${bulkSelected.has(r.key) ? 'checked' : ''}>
       <span class="tok">${esc(r.display)}</span>
       <span class="cnt">${r.count}</span>
-      ${mappedTo ? `<span class="mapped">${mappedTo.emoji} ${esc(mappedTo.label)}</span>` : ''}`;
+      ${mappedTo.length ? `<span class="mapped">${mappedTo.map(b => `${b.emoji} ${esc(b.label)}`).join(' + ')}</span>` : ''}`;
     label.querySelector('input').addEventListener('change', e => {
       e.target.checked ? bulkSelected.add(r.key) : bulkSelected.delete(r.key);
       updateBulkApplyLabel();
@@ -1265,19 +1286,50 @@ function renderBulk() {
     box.appendChild(label);
   }
 
-  $('bulk-target').innerHTML = buckets().map(b => `<option value="${b.id}">${b.emoji} ${esc(b.label)}</option>`).join('');
+  renderBulkTargets();
   updateBulkApplyLabel();
+}
+
+let bulkTargetSelected = new Set();
+
+/** Same 2-cap-by-disabling pattern as the per-place category picker. */
+function renderBulkTargets() {
+  const box = $('bulk-targetpick');
+  box.innerHTML = '';
+  for (const b of buckets()) {
+    const label = document.createElement('label');
+    label.className = 'bulkrow';
+    label.innerHTML = `
+      <input type="checkbox" value="${b.id}" ${bulkTargetSelected.has(b.id) ? 'checked' : ''}>
+      <span>${b.emoji} ${esc(b.label)}</span>`;
+    label.querySelector('input').addEventListener('change', e => {
+      e.target.checked ? bulkTargetSelected.add(b.id) : bulkTargetSelected.delete(b.id);
+      refreshBulkTargetDisabled();
+      updateBulkApplyLabel();
+    });
+    box.appendChild(label);
+  }
+  refreshBulkTargetDisabled();
+}
+
+function refreshBulkTargetDisabled() {
+  const inputs = [...$('bulk-targetpick').querySelectorAll('input[type=checkbox]')];
+  const checkedCount = inputs.filter(i => i.checked).length;
+  for (const i of inputs) i.disabled = checkedCount >= 2 && !i.checked;
 }
 
 function updateBulkApplyLabel() {
   const btn = $('bulk-apply');
-  btn.disabled = bulkSelected.size === 0;
-  btn.textContent = bulkSelected.size ? `Apply to selected (${bulkSelected.size})` : 'Apply to selected';
+  btn.disabled = bulkSelected.size === 0 || bulkTargetSelected.size === 0;
+  btn.textContent = bulkSelected.size
+    ? `Apply to selected (${bulkSelected.size})`
+    : 'Apply to selected';
 }
 
 function openBulk() {
   if (!state.data) return toast('Open a file first.', true);
   bulkSelected = new Set();
+  bulkTargetSelected = new Set();
   $('bulk-search').value = '';
   $('bulk-report').innerHTML = '';
   renderBulk();
@@ -1285,17 +1337,17 @@ function openBulk() {
 }
 
 function doBulkApply() {
-  if (!bulkSelected.size) return;
-  const target = $('bulk-target').value;
+  if (!bulkSelected.size || !bulkTargetSelected.size) return;
+  const targets = [...bulkTargetSelected].slice(0, 2);
   const rules = materialiseCategoryRules();
-  for (const key of bulkSelected) rules[key] = target;
+  for (const key of bulkSelected) rules[key] = targets;
 
   const changed = applyCategoryRules(state.data.features, { force: true });
   bulkSelected = new Set();
   markDirty(); renderList(); renderEdit(); renderBulk();
 
-  const b = bucketOf(target);
-  report('bulk-report', 'ok', `Mapped to ${b.emoji} ${esc(b.label)}`,
+  const labels = targets.map(bucketOf).map(b => `${b.emoji} ${b.label}`).join(' + ');
+  report('bulk-report', 'ok', `Mapped to ${labels}`,
     [`${changed} place(s) updated now. Saved with the file, so future imports get the same treatment automatically.`]);
 }
 
