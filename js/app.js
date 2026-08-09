@@ -290,8 +290,8 @@ function fitToData() {
 function counts() {
   const m = new Map();
   for (const f of data?.features ?? []) {
-    for (const b of f.properties._buckets ?? []) {
-      m.set(b, (m.get(b) ?? 0) + 1);
+    for (const b of [f.properties._bucket1, f.properties._bucket2]) {
+      if (b) m.set(b, (m.get(b) ?? 0) + 1);
     }
   }
   return m;
@@ -546,11 +546,18 @@ function toggleStatusPanel(open) {
 }
 
 function applyFilter() {
-  // A place matches on category if ANY of its (up to 2) buckets are active —
-  // an empty active set must still produce a valid boolean expression that
-  // matches nothing, hence the `false` fallback rather than an empty `any`.
+  // A place matches on category if EITHER of its (up to 2) scalar bucket
+  // slots is active. Deliberately not built against the array-valued
+  // _buckets property — GeoJSON sources JSON-stringify array properties
+  // internally, and expressions read that same internal representation, so
+  // ['get','_buckets'] is not reliably an array here either. _bucket1/2 are
+  // plain strings, immune to that. An empty active set must still produce a
+  // valid boolean expression that matches nothing, hence `false`.
+  const activeArr = [...active];
   const catExpr = active.size
-    ? ['any', ...[...active].map(b => ['in', b, ['get', '_buckets']])]
+    ? ['any',
+        ['in', ['get', '_bucket1'], ['literal', activeArr]],
+        ['in', ['get', '_bucket2'], ['literal', activeArr]]]
     : false;
 
   const f = ['all',
@@ -632,7 +639,10 @@ function openSheet(feature) {
   toggleStatusPanel(false);
   const p = feature.properties ?? {};
   const [lng, lat] = feature.geometry.coordinates;
-  const bs = (p._buckets ?? ['other']).map(bucketById);
+  // feature comes from a map click event — read the scalar _bucket1/2, not
+  // the array-valued _buckets, which MapLibre hands back JSON-stringified
+  // here (confirmed crash: (p._buckets ?? []).map is not a function).
+  const bs = [p._bucket1 || 'other', p._bucket2].filter(Boolean).map(bucketById);
 
   // Google Maps https deep links hand off to the native Android app automatically
   // and still work on desktop, which raw geo:/google.navigation: intents do not.
@@ -831,7 +841,7 @@ function search(q) {
   placesBox.innerHTML = '';
   for (const f of hits) {
     const p = f.properties;
-    const b = bucketById((p._buckets ?? ['other'])[0]);   // primary category — a compact row shows one
+    const b = bucketById(p._bucket1 || 'other');   // primary category — a compact row shows one
     const btn = document.createElement('button');
     btn.className = 'result';
     btn.innerHTML = `<span class="emoji">${b.emoji}</span>

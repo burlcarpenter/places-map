@@ -153,17 +153,30 @@ export function resolveBuckets(props = {}) {
 
 /**
  * Annotate a FeatureCollection in place:
- *   _buckets   — the resolved array, 1–2 ids, in the place's own order
+ *   _buckets   — the resolved array, 1–2 ids, in the place's own order. Safe
+ *                to read directly off data.features (my own JS object), but
+ *                NEVER from a feature returned by a MapLibre click/query
+ *                event — GeoJSON sources round-trip through an internal
+ *                tile-like format that JSON-stringifies array-valued
+ *                properties, so map.on('click', ...) hands back the STRING
+ *                '["cafe"]', not the array. Confirmed live: this crashed
+ *                openSheet() in production.
+ *   _bucket1/2 — the same 1–2 ids as plain scalar strings (empty string when
+ *                there is no second), immune to that behaviour. Anything
+ *                MapLibre touches — filters, or a feature from a click
+ *                event — reads these, never _buckets.
  *   _bucketKey — a stable, order-independent string picking the marker
  *                sprite: one id alone, or both alphabetised and joined, so
  *                ['cafe','museum'] and ['museum','cafe'] share one sprite
- *                rather than needing two.
+ *                rather than needing two. Already a scalar, unaffected.
  */
 export function annotate(geojson) {
   for (const f of geojson.features ?? []) {
     f.properties = f.properties ?? {};
     const b = resolveBuckets(f.properties);
     f.properties._buckets = b;
+    f.properties._bucket1 = b[0];
+    f.properties._bucket2 = b[1] ?? '';
     f.properties._bucketKey = [...b].sort().join('+');
   }
   return geojson;
