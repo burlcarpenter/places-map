@@ -276,6 +276,20 @@
     <div id="bulk-targetpick" style="max-height:140px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--r); padding:2px; margin-bottom:12px"></div>
     <button class="btn primary" id="bulk-apply" disabled style="width:100%">Apply to selected</button>
     <div id="bulk-report"></div>
+
+    <hr style="border:0; border-top:1px solid var(--border); margin:18px 0">
+    <label style="display:block; font-size:12px; font-weight:700; margin-bottom:6px">Remove a category everywhere</label>
+    <p class="sub" style="margin-bottom:8px">
+      Strips one category off every place that has it, regardless of raw Google data — for
+      clearing "Research Needed" once you've caught up, or undoing a category entirely. A place
+      left with none falls back to Other, same as anywhere else in the app.
+    </p>
+    <div class="row" style="align-items:center">
+      <select id="bulk-remove-target" style="flex:1"></select>
+      <button class="btn danger" id="bulk-remove-go">Remove</button>
+    </div>
+    <div id="bulk-remove-report"></div>
+
     <div class="modal-actions" style="justify-content:space-between">
       <button class="btn danger" id="bulk-reapply">Re-apply all rules now</button>
       <button class="btn primary" data-close="m-bulk">Done</button>
@@ -313,8 +327,12 @@
       <input id="q" type="search" placeholder="Search name, note, tag, address…" autocomplete="off">
       <div class="row">
         <select id="fbucket"><option value="">All categories</option></select>
-        <select id="fsort">
+        <select id="fcountry"><option value="">All countries</option></select>
+      </div>
+      <div class="row">
+        <select id="fsort" style="flex:1">
           <option value="name">A–Z</option>
+          <option value="name-desc">Z–A</option>
           <option value="added">Recently added</option>
           <option value="bucket">By category</option>
         </select>
@@ -649,6 +667,7 @@ function loadText(text, name) {
   if (Array.isArray(d?.categories) && d.categories.length) state.data.categories = d.categories;
   for (const b of ['btn-import','btn-url','btn-cats','btn-bulk']) $(b).disabled = false;
   buildBucketFilter();
+  buildCountryFilter();
   renderList();
   renderEdit();
   toast(note ? `${note} Save to write it out.` : `Loaded ${features.length} places`);
@@ -698,6 +717,21 @@ function buildBucketFilter() {
     buckets().map(b => `<option value="${b.id}">${b.emoji} ${esc(b.label)}</option>`).join('');
 }
 
+const countryOf = p => String(p.country ?? '').trim() || 'Unknown';
+
+function buildCountryFilter() {
+  const counts = new Map();
+  for (const f of state.data.features) {
+    const c = countryOf(f.properties);
+    counts.set(c, (counts.get(c) ?? 0) + 1);
+  }
+  const prev = $('fcountry').value;
+  const countries = [...counts.keys()].sort((a, b) => a.localeCompare(b));
+  $('fcountry').innerHTML = '<option value="">All countries</option>' +
+    countries.map(c => `<option value="${esc(c)}">${esc(c)} (${counts.get(c)})</option>`).join('');
+  if (countries.includes(prev)) $('fcountry').value = prev;   // survives a re-import, not just re-selected each time
+}
+
 /**
  * Effective categories: the explicit override (up to 2), else 'other' — the
  * PWA derives one from Google's raw category when nothing is set; the
@@ -715,10 +749,12 @@ function effBuckets(f) {
 function visibleIndices() {
   const q = $('q').value.trim().toLowerCase();
   const fb = $('fbucket').value;
+  const fc = $('fcountry').value;
   const rows = [];
 
   state.data.features.forEach((f, i) => {
     if (fb && !effBuckets(f).includes(fb)) return;
+    if (fc && countryOf(f.properties) !== fc) return;
     if (q) {
       const p = f.properties;
       const hay = [p.name, p.address, p.city, p.district, p.note,
@@ -730,9 +766,10 @@ function visibleIndices() {
   });
 
   const sort = $('fsort').value;
-  if (sort === 'name') {
+  if (sort === 'name' || sort === 'name-desc') {
     rows.sort((a, b) => String(state.data.features[a].properties.name ?? '')
       .localeCompare(String(state.data.features[b].properties.name ?? '')));
+    if (sort === 'name-desc') rows.reverse();
   } else if (sort === 'bucket') {
     const ord = Object.fromEntries(buckets().map((b, i) => [b.id, i]));
     // Sorts by the first-listed category — a place's own "primary" slot.
@@ -1340,8 +1377,51 @@ function openBulk() {
   bulkTargetSelected = new Set();
   $('bulk-search').value = '';
   $('bulk-report').innerHTML = '';
+  $('bulk-remove-report').innerHTML = '';
   renderBulk();
+  renderBulkRemoveTarget();
   $('m-bulk').hidden = false;
+}
+
+/** Only categories actually in use are worth offering — an empty dropdown
+ *  entry for something nothing carries would just be confusing. */
+function renderBulkRemoveTarget() {
+  const counts = new Map();
+  for (const f of state.data.features) {
+    for (const b of effBuckets(f)) counts.set(b, (counts.get(b) ?? 0) + 1);
+  }
+  const sel = $('bulk-remove-target');
+  const prev = sel.value;
+  sel.innerHTML = buckets()
+    .filter(b => counts.get(b.id))
+    .map(b => `<option value="${b.id}">${b.emoji} ${esc(b.label)} — ${counts.get(b.id)} place${counts.get(b.id) === 1 ? '' : 's'}</option>`)
+    .join('');
+  if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+}
+
+/**
+ * Strips one category off every place carrying it, regardless of raw Google
+ * data — unlike everything else in this modal, which only ever operates via
+ * raw-category rules. A place left with none falls back to ['other'], same
+ * as the rest of the app.
+ */
+function doBulkRemove() {
+  const target = $('bulk-remove-target').value;
+  if (!target) return;
+  const b = bucketOf(target);
+
+  const affected = state.data.features.filter(f => effBuckets(f).includes(target));
+  if (!affected.length) return;
+  if (!confirm(`Remove "${b.label}" from ${affected.length} place(s)?\n\nThis only changes the file when you save — nothing here touches Google's own data.`)) return;
+
+  for (const f of affected) {
+    const next = effBuckets(f).filter(x => x !== target);
+    userOf(f).buckets = next.length ? next : ['other'];
+    delete userOf(f).bucket;
+  }
+
+  markDirty(); renderList(); renderEdit(); renderBulkRemoveTarget();
+  report('bulk-remove-report', 'ok', `Removed ${b.emoji} ${b.label}`, [`${affected.length} place(s) updated.`]);
 }
 
 function doBulkApply() {
@@ -1407,7 +1487,7 @@ function doImport() {
   }
 
   const r = appendFeatures(feats);
-  markDirty(); renderList();
+  markDirty(); buildCountryFilter(); renderList();
 
   const lines = [
     note,
@@ -1714,7 +1794,7 @@ async function importManyFiles(files) {
       (r.bad ? `, ${r.bad} malformed` : ''));
   }
 
-  markDirty(); renderList();
+  markDirty(); buildCountryFilter(); renderList();
   $('imp-go').disabled = false;
 
   report('imp-report', failed ? 'err' : 'ok',
@@ -1741,6 +1821,7 @@ $('cat-reset').addEventListener('click', resetCats);
 $('btn-bulk').addEventListener('click', openBulk);
 $('bulk-apply').addEventListener('click', doBulkApply);
 $('bulk-reapply').addEventListener('click', doBulkReapplyAll);
+$('bulk-remove-go').addEventListener('click', doBulkRemove);
 $('bulk-search').addEventListener('input', renderBulk);
 $('bulk-selectall').addEventListener('click', () => {
   for (const r of visibleBulkRows()) bulkSelected.add(r.key);
@@ -1774,7 +1855,7 @@ $('url-add').addEventListener('click', addFromUrl);
 for (const el of document.querySelectorAll('[data-close]')) {
   el.addEventListener('click', () => { $(el.dataset.close).hidden = true; });
 }
-for (const id of ['q','fbucket','fsort']) $(id).addEventListener('input', renderList);
+for (const id of ['q','fbucket','fcountry','fsort']) $(id).addEventListener('input', renderList);
 
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveFile(); }
