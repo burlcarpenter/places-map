@@ -102,7 +102,8 @@ button { font: inherit; cursor: pointer; border: 0; background: none; color: inh
 .filter-bar {
   position: absolute; z-index: 5; left: 12px;
   bottom: max(14px, env(safe-area-inset-bottom));
-  display: flex; gap: 8px; flex-wrap: wrap; max-width: calc(100vw - 24px);
+  display: flex; flex-direction: column-reverse; align-items: flex-start;
+  gap: 8px; max-width: calc(100vw - 24px);
 }
 .filter-group { position: relative; }
 .cat-trigger {
@@ -116,7 +117,7 @@ button { font: inherit; cursor: pointer; border: 0; background: none; color: inh
 .cat-trigger .n.filtered { color: var(--accent); font-weight: 700; }
 
 .cat-panel {
-  position: absolute; left: 0; bottom: calc(100% + 8px);
+  position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 2;
   width: min(82vw, 300px); max-height: 56vh; overflow-y: auto;
   background: var(--bg); border-radius: 14px; box-shadow: var(--shadow-lg);
   animation: rise .16s ease-out;
