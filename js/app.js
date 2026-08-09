@@ -12,6 +12,10 @@ let map, data = null, active = new Set();
 let watchId = null, meMarker = null, lastFix = null;
 const ME_SRC = 'me-accuracy';
 
+let baseLayerIds = [];   // the vector style's own layers, captured before we add anything
+const SAT_SRC = 'satellite';
+const SAT_LAYER = 'satellite-layer';
+
 // ---------------------------------------------------------------- utilities
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -61,6 +65,72 @@ function initMap() {
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
 
   return new Promise(res => map.on('load', res));
+}
+
+/**
+ * CARTO Positron prefers English names (name_en) for most place labels —
+ * country/state/continent unconditionally, towns and cities below zoom 13.
+ * That is why a French region rendered as "Great East" instead of "Grand Est."
+ *
+ * Prefer OSM's `name:latin` — a transliteration of the local name, not a
+ * translation of it (e.g. "Moskva", not "Moscow") — falling back to the plain
+ * `name` tag where no transliteration is tagged, which is already Latin script
+ * for most of Europe and needs none. Coverage of `name:latin` in OSM is
+ * inconsistent, so a handful of places may still fall back to their native
+ * script rather than a Latin rendering.
+ */
+function useLocalLabels() {
+  const expr = ['coalesce', ['get', 'name:latin'], ['get', 'name']];
+  for (const layer of map.getStyle().layers) {
+    if (layer.type !== 'symbol') continue;
+    const tf = map.getLayoutProperty(layer.id, 'text-field');
+    if (tf && JSON.stringify(tf).includes('name_en')) {
+      map.setLayoutProperty(layer.id, 'text-field', expr);
+    }
+  }
+}
+
+/**
+ * Satellite imagery as a raster layer beneath everything else, toggled by
+ * visibility rather than swapping the whole style — a setStyle() call would
+ * tear down and require re-adding every source, layer, marker and icon we
+ * own. Esri's World Imagery tiles are the standard free-no-key option for a
+ * personal project at this scale; I have not separately verified their usage
+ * terms cover this beyond typical hobby-project use.
+ */
+function addSatelliteLayer() {
+  // Snapshot the vector style's own layers before we add anything of ours, so
+  // the toggle knows exactly what to hide and never touches our own layers.
+  baseLayerIds = map.getStyle().layers.map(l => l.id);
+
+  map.addSource(SAT_SRC, {
+    type: 'raster',
+    tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+    tileSize: 256,
+    attribution: 'Imagery © Esri'
+  });
+  map.addLayer({ id: SAT_LAYER, type: 'raster', source: SAT_SRC, layout: { visibility: 'none' } });
+}
+
+function toggleSatellite() {
+  const on = map.getLayoutProperty(SAT_LAYER, 'visibility') !== 'visible';
+  map.setLayoutProperty(SAT_LAYER, 'visibility', on ? 'visible' : 'none');
+  for (const id of baseLayerIds) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'none' : 'visible');
+  }
+  $('btn-satellite').classList.toggle('active', on);
+}
+
+/** A quick, low-accuracy fix purely to frame the opening camera — not the tracked blue dot. */
+function getInitialFix(timeout = 6000) {
+  return new Promise(resolve => {
+    if (!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve(pos),
+      () => resolve(null),
+      { enableHighAccuracy: false, timeout, maximumAge: 60000 }
+    );
+  });
 }
 
 function registerIcons() {
@@ -114,7 +184,7 @@ function addLayers() {
   map.on('mouseleave', LAYER, () => map.getCanvas().style.cursor = '');
 }
 
-function render(fc, { fit = false } = {}) {
+function render(fc) {
   // The file may carry its own taxonomy from the desktop editor; adopt it
   // before annotating, and rebuild the marker sprites if it differs.
   if (applyTaxonomyFrom(fc)) registerIcons();
@@ -122,7 +192,6 @@ function render(fc, { fit = false } = {}) {
   map.getSource(SRC).setData(data);
   buildChips();
   applyFilter();
-  if (fit) fitToData();
 }
 
 function fitToData() {
@@ -430,7 +499,7 @@ async function refresh({ silent = false } = {}) {
 
     await setPlaces(incoming);
     await saveSettings({ lastSync: Date.now(), placeCount: d.total });
-    render(incoming, { fit: !cached });
+    render(incoming);
 
     const change = d.added || d.removed
       ? ` (${[d.added && `+${d.added}`, d.removed && `−${d.removed}`].filter(Boolean).join(', ')})`
@@ -502,6 +571,7 @@ function wire() {
   });
 
   $('btn-locate').addEventListener('click', toggleLocate);
+  $('btn-satellite').addEventListener('click', toggleSatellite);
 }
 
 // ---------------------------------------------------------------- boot
@@ -510,17 +580,30 @@ function wire() {
   wire();
   await Promise.all([loadTaxonomy(), initMap()]);
   registerIcons();
+  addSatelliteLayer();   // before addLayers(), so it only captures the vector style's own layers
   addLayers();
+  useLocalLabels();
+
+  // Kick off a quick location fix in parallel with data loading, rather than
+  // after it, so opening the app is not gated on the slower of the two.
+  const locPromise = getInitialFix();
 
   const cached = await getPlaces();
   if (cached) {
-    render(cached, { fit: true });
+    render(cached);
     refresh({ silent: true });            // quiet background update; offline is fine
   } else {
     const s = await getSettings();
     if (s.token) await refresh();
     else { toast('Add your GitHub token in Settings to load places.'); openSettings(); }
   }
+
+  // Open zoomed to wherever you are; fall back to fitting your data if
+  // location is denied, times out, or the device has none to offer.
+  const fix = await locPromise;
+  if (fix) map.jumpTo({ center: [fix.coords.longitude, fix.coords.latitude], zoom: 15 });
+  else fitToData();
+
   refreshMeta();
 
   // On when deployed, off on localhost. A service worker serving stale code
