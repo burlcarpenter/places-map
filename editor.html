@@ -253,11 +253,13 @@
   <div class="modal-card" style="max-width:680px">
     <h2>Bulk categorize</h2>
     <p class="sub">
-      Every distinct Google category currently in your data, most common first. Select several,
-      pick where they should go, and apply once. The mapping is saved with the file, so it
-      automatically covers new places in future imports too — it never touches a place you've set
-      by hand here in the editor, unless you explicitly re-apply below.
+      Every distinct Google category currently in your data, A–Z. Select several, pick where
+      they should go, and apply once. The mapping is saved with the file, so it automatically
+      covers new places in future imports too — it never touches a place you've set by hand here
+      in the editor, unless you explicitly re-apply below.
     </p>
+    <input id="bulk-search" type="search" placeholder="Search categories…" autocomplete="off"
+           spellcheck="false" style="margin-bottom:10px">
     <div class="row" style="margin-bottom:12px; align-items:center">
       <select id="bulk-target" style="flex:1"></select>
       <button class="btn primary" id="bulk-apply" disabled>Apply to selected</button>
@@ -1087,7 +1089,7 @@ function materialiseCategoryRules() {
   return state.data.categoryRules;
 }
 
-/** Every distinct raw Google category token across all current places, most common first. */
+/** Every distinct raw Google category token across all current places, A–Z. */
 function collectRawCategoryTokens() {
   const counts = new Map();   // lowercase token -> { display, count }
   for (const f of state.data.features) {
@@ -1100,7 +1102,7 @@ function collectRawCategoryTokens() {
   }
   return [...counts.entries()]
     .map(([key, v]) => ({ key, display: v.display, count: v.count }))
-    .sort((a, b) => b.count - a.count || a.display.localeCompare(b.display));
+    .sort((a, b) => a.display.localeCompare(b.display));
 }
 
 /**
@@ -1136,9 +1138,18 @@ let bulkSelected = new Set();
 
 function renderBulk() {
   const rules = materialiseCategoryRules();
-  const rows = collectRawCategoryTokens();
+  const term = $('bulk-search').value.trim().toLowerCase();
+  const all = collectRawCategoryTokens();
+  const rows = term ? all.filter(r => r.display.toLowerCase().includes(term)) : all;
   const box = $('bulk-rows');
-  box.innerHTML = rows.length ? '' : '<p class="hint" style="padding:8px">No Google category data in this file yet.</p>';
+
+  if (!all.length) {
+    box.innerHTML = '<p class="hint" style="padding:8px">No Google category data in this file yet.</p>';
+  } else if (!rows.length) {
+    box.innerHTML = `<p class="hint" style="padding:8px">No category matches "${esc($('bulk-search').value.trim())}".</p>`;
+  } else {
+    box.innerHTML = '';
+  }
 
   for (const r of rows) {
     const label = document.createElement('label');
@@ -1169,6 +1180,7 @@ function updateBulkApplyLabel() {
 function openBulk() {
   if (!state.data) return toast('Open a file first.', true);
   bulkSelected = new Set();
+  $('bulk-search').value = '';
   $('bulk-report').innerHTML = '';
   renderBulk();
   $('m-bulk').hidden = false;
@@ -1571,6 +1583,7 @@ $('cat-reset').addEventListener('click', resetCats);
 $('btn-bulk').addEventListener('click', openBulk);
 $('bulk-apply').addEventListener('click', doBulkApply);
 $('bulk-reapply').addEventListener('click', doBulkReapplyAll);
+$('bulk-search').addEventListener('input', renderBulk);
 
 $('btn-key').addEventListener('click', () => {
   $('key-input').value = apiKey();

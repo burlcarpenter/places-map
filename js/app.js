@@ -12,9 +12,13 @@ let map, data = null, active = new Set(), activeCountries = new Set(), activeSta
 let watchId = null, meMarker = null, lastFix = null;
 const ME_SRC = 'me-accuracy';
 
-let baseLayerIds = [];   // the vector style's own layers, captured before we add anything
+let baseLayerIds = [];      // Positron's own layers, captured before we add anything of ours
+let voyagerLayerIds = [];   // Voyager's layers, added later, prefixed to avoid id collisions
+let currentView = 'map';    // 'map' | 'classic' | 'satellite' — mutually exclusive
 const SAT_SRC = 'satellite';
 const SAT_LAYER = 'satellite-layer';
+const VOYAGER_STYLE_URL = 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json';
+const VOYAGER_PREFIX = 'voy-';
 
 // ---------------------------------------------------------------- utilities
 
