@@ -110,15 +110,30 @@ function addSatelliteLayer() {
     attribution: 'Imagery © Esri'
   });
   map.addLayer({ id: SAT_LAYER, type: 'raster', source: SAT_SRC, layout: { visibility: 'none' } });
+
+  // MapLibre reports tile failures through this event, not a thrown JS error —
+  // easy for a silent failure to produce no console output at all.
+  map.on('error', e => {
+    if (e?.sourceId === SAT_SRC) {
+      toast(`Satellite imagery failed to load: ${e.error?.message ?? 'unknown error'}`, true);
+    }
+  });
 }
 
 function toggleSatellite() {
-  const on = map.getLayoutProperty(SAT_LAYER, 'visibility') !== 'visible';
-  map.setLayoutProperty(SAT_LAYER, 'visibility', on ? 'visible' : 'none');
-  for (const id of baseLayerIds) {
-    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'none' : 'visible');
+  try {
+    const on = map.getLayoutProperty(SAT_LAYER, 'visibility') !== 'visible';
+    map.setLayoutProperty(SAT_LAYER, 'visibility', on ? 'visible' : 'none');
+    for (const id of baseLayerIds) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'none' : 'visible');
+    }
+    $('btn-satellite').classList.toggle('active', on);
+    toast(on ? 'Satellite view on' : 'Satellite view off');
+  } catch (e) {
+    // If this fires, the button IS wired correctly — something in MapLibre
+    // itself rejected the call, and the message says what.
+    toast(`Satellite toggle failed: ${e.message}`, true);
   }
-  $('btn-satellite').classList.toggle('active', on);
 }
 
 /** A quick, low-accuracy fix purely to frame the opening camera — not the tracked blue dot. */
