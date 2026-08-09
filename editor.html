@@ -415,6 +415,56 @@ function categoryTokens(raw) {
   return parts.map(t => String(t ?? '').trim()).filter(Boolean);
 }
 
+/**
+ * Rating, phone, website, hours — carried through on save exactly as
+ * imported, but until now never actually shown anywhere in the editor. A
+ * rich import looked identical to a bare one unless you inspected the raw
+ * file, which is confusing enough to look like a real bug.
+ */
+function googleDetailsHtml(p) {
+  // The structured city/district fields can genuinely differ from the address
+  // string's own wording (e.g. city:"Vienna" vs address:"...Wien, Austria"),
+  // so both are worth showing rather than assuming one subsumes the other.
+  const locality = [p.district, p.city, p.postalCode, p.country].filter(Boolean).join(' · ');
+  const phone = Array.isArray(p.phones) ? p.phones[0] : (p.phones || p.phone);
+  const hours = hoursListHtml(p.hours);
+
+  const bits = [];
+  if (locality) bits.push(`<div>${esc(locality)}</div>`);
+  if (p.rating) bits.push(`<div><b>${esc(p.rating)}</b> ★${p.reviewCount ? ` (${esc(p.reviewCount)} reviews)` : ''}</div>`);
+  if (phone) bits.push(`<div>${esc(phone)}</div>`);
+  if (p.website) bits.push(`<div style="overflow-wrap:anywhere"><a href="${esc(p.website)}" target="_blank" rel="noopener">${esc(p.website)}</a></div>`);
+
+  const meta = [p.plusCode, p.dateAdded ? `saved ${esc(String(p.dateAdded).slice(0, 10))}` : null]
+    .filter(Boolean).join(' · ');
+
+  if (!bits.length && !hours && !p.imageUrl) return '';
+  return `<div class="field">
+    <label>From Google <span class="hint" style="font-weight:400">— read-only, carried through as-is</span></label>
+    ${p.imageUrl ? `<img src="${esc(p.imageUrl)}" alt="" loading="lazy" style="width:100%; max-height:160px; object-fit:cover; border-radius:var(--r); margin-bottom:8px; display:block">` : ''}
+    ${bits.length ? `<div class="ro" style="display:grid; gap:4px">${bits.join('')}</div>` : ''}
+    ${hours}
+    ${meta ? `<div class="hint" style="margin-top:6px">${esc(meta)}</div>` : ''}
+  </div>`;
+}
+
+function hoursListHtml(raw) {
+  const hours = parseMaybeJson(raw);
+  if (!Array.isArray(hours) || !hours.length) return '';
+  const rows = hours.map(h => {
+    if (typeof h === 'string') return [h, ''];
+    if (h && typeof h === 'object' && 'day' in h) return [h.day, h.hours ?? h.time ?? ''];
+    return Object.entries(h ?? {})[0] ?? [];
+  }).filter(pair => pair.length && pair[0]);
+  if (!rows.length) return '';
+  return `<details style="margin-top:6px">
+    <summary style="cursor:pointer; color:var(--accent); font-size:12.5px; font-weight:600">Opening hours</summary>
+    <div style="margin-top:6px; display:grid; gap:2px; font-size:12.5px">
+      ${rows.map(([d, h]) => `<div style="display:flex; justify-content:space-between; color:var(--muted)"><span>${esc(d)}</span><span>${esc(h)}</span></div>`).join('')}
+    </div>
+  </details>`;
+}
+
 /** Drop nulls and empties so converted records stay tidy. `false` is meaningful, so it stays. */
 function cleanProps(o) {
   return Object.fromEntries(Object.entries(o).filter(([, v]) =>
@@ -672,6 +722,7 @@ function renderEdit() {
       <label>Google category <span class="hint" style="font-weight:400">— read-only</span></label>
       <div class="ro">${esc(rawCats.join(' · '))}</div>
     </div>` : ''}
+    ${googleDetailsHtml(p)}
 
     <div class="grid2">
       <div class="field">
